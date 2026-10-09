@@ -133,7 +133,10 @@ python -m esptool --port COM5 --baud 460800 write-flash 0x0 SDP_firmware.bin
 # 4. дальше обновления — во вкладке «Прошивка»
 ```
 
-Windows проще: запустить `tools\flash_broclock.bat` рядом с `.bin`.
+Windows? Запустите `tools\flash_broclock.bat` рядом с `.bin` — он сам найдёт
+CH340, прошьёт и проверит хеш:
+
+<p align="center"><img src="assets/Installation using bat.JPG" alt="flash_broclock.bat" width="70%"></p>
 
 ## 🔨 Сборка из исходников
 
