@@ -1,0 +1,48 @@
+name: 🐛 Bug report
+description: Something flashes wrong or misbehaves
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Please fill in as much as you can —
+        ESP8266 clocks vary, and hardware details matter.
+  - type: input
+    id: version
+    attributes:
+      label: Firmware version
+      description: Bottom of the "Прошивка / Firmware" tab, or `curl http://DEVICE_IP/api/status | grep ver`
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: board
+    attributes:
+      label: Board / device
+      options:
+        - SD PRO (smalltv-mod pinout, CS=15/DC=0/RST=2)
+        - SD PRO alt revision (CS=15/DC=2/RST=4)
+        - SmallTV / SmallTV-Ultra clone
+        - NodeMCU + DIY 1.3" ST7789
+    validations:
+      required: true
+  - type: input
+    id: flash
+    attributes:
+      label: Flash size / mode
+      placeholder: 4MB DIO
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Include serial log if you can (115200 8N1).
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+  - type: textarea
+    id: more
+    attributes:
+      label: Screenshots / serial log / config.json (no passwords!)

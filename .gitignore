@@ -1,0 +1,24 @@
+# PlatformIO
+.pio/
+.pio.env
+.vscode/
+.vscode/.browse.c_cpp.db*
+*.elf
+
+# Node / font tooling
+node_modules/
+__pycache__/
+*.pyc
+
+# Local flash artifacts (release binaries live in GitHub Releases, not in git)
+SDP_firmware.bin
+BroClock_Pro_firmware.bin
+BroClock_Pro_factory.bin
+flash_out/
+test_out.txt
+serwx.txt
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

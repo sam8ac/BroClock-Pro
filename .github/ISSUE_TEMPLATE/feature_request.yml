@@ -1,0 +1,30 @@
+name: 💡 Feature request
+description: Suggest an idea for BroClock Pro
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Ideas welcome — themes, web UI, APIs, crypto data sources, weather, anything.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What should it do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is it useful?
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Web UI
+        - Themes / carousel
+        - Crypto (coins, charts, market)
+        - Weather
+        - WiFi / setup
+        - OTA / flashing
+        - HTTP API
+        - Build / tooling
