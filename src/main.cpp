@@ -4497,6 +4497,10 @@ var T={
 'Отметьте темы, которые участвуют в карусели':['Tick the themes that take part in the carousel','Marca los temas que participan en el carrusel','勾选参与轮播的主题'],
 'Палитра':['Palette','Paleta','调色板'],'Пароль':['Password','Contraseña','密码'],
 'Погода':['Weather','Clima','天气'],
+'Погода: ошибка обновления':['Weather: update failed','Clima: error de actualización','天气：更新失败'],
+'Погода обновлена':['Weather updated','Clima actualizado','天气已更新'],
+'Котировки: ошибка обновления':['Market data: error','Datos de mercado: error','行情：更新失败'],
+'Котировки обновлены':['Market data updated','Datos de mercado actualizados','行情已更新'],
 'Погода обновляется автоматически каждые 10 минут.':['Weather refreshes automatically every 10 minutes.','El clima se actualiza automáticamente cada 10 minutos.','天气每10分钟自动刷新。'],
 'Подключено':['Connected','Conectado','已连接'],
 'Подсветка':['Backlight','Iluminación','背光'],'Польша':['Poland','Polonia','波兰'],'Португалия':['Portugal','Portugal','葡萄牙'],
@@ -4787,7 +4791,24 @@ function setVal(id,v,guard){
   if(guard&&document.activeElement===e)return;
   if(String(e.value)!==String(v))e.value=v;
 }
+function renderFetchState(s){
+  var wm=document.getElementById('wxmsg');
+  if(wm){
+    var we=s.wxerr||'';
+    wm.textContent=(we?ttr('Погода: ошибка обновления')+' — '+we
+                            :ttr('Погода обновлена')+' · '+(s.wxage||''));
+    wm.style.color=we?'#f66':'#7fa';
+  }
+  var mm=document.getElementById('mkmsg');
+  if(mm){
+    var me=s.err||'';
+    mm.textContent=(me?ttr('Котировки: ошибка обновления')+' — '+me
+                            :ttr('Котировки обновлены')+' · '+(s.age||''));
+    mm.style.color=me?'#f66':'#7fa';
+  }
+}
 function applySettings(s){
+  renderFetchState(s);
   var lg=s.lang||'en';
   try{localStorage.setItem('sdp_lang',lg)}catch(e){}
   if(lg!==LANG){
@@ -5357,6 +5378,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <option value=candle>Свечи</option><option value=line>Линия</option></select>
 <label>Обновление данных, сек</label><input id=refi type=number value=60 onchange="set('refresh',this.value)">
 <button onclick="fetch('/api/refresh').then(()=>st())">Обновить данные сейчас</button>
+<div class=dim id=mkmsg style="margin-top:2px"></div>
 <label>Вторичный рынок · до 3 монет</label>
 <div id=chips class=chips>…</div>
 <label>Найти и добавить монету</label>
@@ -5377,6 +5399,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <option value=ometo>Open-Meteo (без ключа, город и с русским названием)</option>
 </select>
 <button onclick="fetch('/api/refresh').then(()=>st())">Обновить погоду сейчас</button>
+<div class=dim id=wxmsg style="margin-top:2px"></div>
 <div class=dim>Погода обновляется автоматически каждые 10 минут.</div>
 </div>
 <div class="c sec" id=sec_wifi hidden><h2>WiFi</h2>
@@ -5731,6 +5754,8 @@ static void handleStatus(){
   // q3/price/chg deliberately NOT serialized: they only mirror what the
   // device screen shows, the web UI never rendered them and every status
   // poll paid String() cost for the dead payload
+  out += "\",\"wxok\":";    out += wxOk ? "true" : "false";
+  out += ",\"wxerr\":";      jsonEsc(out, errLoc(wxErr));
   out += "\",\"q3age\":\""; out += q3At ? String((millis() - q3At) / 1000) +
                                 LG(" с назад", "s ago", "s atrás", "秒前") : String("-");
   out += "\"";
@@ -6373,7 +6398,7 @@ static void handleGeoIp(){
     server.send(502, "application/json", "{\"error\":\"ip connect\"}");
     return;
   }
-  c.print("GET /json/?fields=status,lat,lon,city,countryCode HTTP/1.1\r\n"
+  c.print("GET /json/?fields=status,lat,lon,city,countryCode,timezone,offset HTTP/1.1\r\n"
           "Host: ip-api.com\r\nConnection: close\r\n\r\n");
   String raw;
   uint32_t t0 = millis();
@@ -6398,6 +6423,11 @@ static void handleGeoIp(){
   if(gc && *gc){
     r["city"] = gc;
     r["countryCode"] = d["countryCode"] | "";
+  }
+  const char* tz = d["timezone"] | "";    // IANA zone + raw offset (seconds)
+  if(tz && *tz){
+    r["timezone"] = tz;
+    r["offset"] = d["offset"] | 0;
   }
   String out;
   serializeJson(r, out);
