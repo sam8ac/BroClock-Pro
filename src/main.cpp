@@ -5759,6 +5759,8 @@ static void handleStatus(){
   out += ",\"q3age\":\""; out += q3At ? String((millis() - q3At) / 1000) +
                                 LG(" с назад", "s ago", "s atrás", "秒前") : String("-");
   out += "\"";
+  out += ",\"wxage\":\""; out += wxOk ? String((millis() - wxAt) / 1000) + LG(" с назад", "s ago", "s atrás", "秒前") : String("-");
+  out += "\"";
   // price panel diagnostics: string + measured widths for the font rule
   {
     uint8_t pf = 7;
