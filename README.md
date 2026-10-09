@@ -16,11 +16,11 @@
   <b>RetroTV Pro</b> (BroClock Pro) — open-source ESP8266 firmware for
   <b>GeekMagic SmallTV / SmallTV-Ultra</b>-class retro clocks (incl. the SD PRO
   board): crypto & weather desk clock with 8 themes, candlestick charts,
-  carousel, holidays, OTA and a 4-language web UI.
+  carousel, holidays, OTA and a <b>4-language</b> web UI.
 </p>
 
 <p align="center">
-  <a href="docs/FLASHING.md">Flashing</a> ·
+  <a href="docs/INSTALL.md">Установка / Install</a> ·
   <a href="docs/HARDWARE.md">Hardware</a> ·
   <a href="docs/HTTP-API.md">HTTP API</a> ·
   <a href="https://github.com/sam8ac/BroClock-Pro/releases">Releases</a> ·
@@ -36,118 +36,139 @@ night-mode backlight and full control from a phone browser** — all on the
 stock ESP8266 (ESP-12E) and ST7789 240×240 display. No cloud, no account, MIT
 licensed.
 
-### ✨ Features
+## 💻 Языки проекта / Project languages
 
-| | |
-|---|---|
-| 💰 **Crypto ticker** | CoinGecko top-250 catalog, up to 4 coins on screen, 48-bar candle/line charts, 60 s refresh, quotes cached on the card |
-| 🌤 **Weather** | OpenWeatherMap **or** key-less Open-Meteo, city autocomplete (Cyrillic + Latin), “My location” by browser/IP geolocation, 5-day forecast, hourly feel on the face |
-| 🎨 **8 themes** | Classic, Crypto, Photo, and more — pick any subset for the carousel, horizontal thumbs strip with the current theme marked |
-| 🔄 **Carousel** | Theme rotation with a 5–900 s interval, per-theme on/off list in the web UI |
-| 🌐 **Web UI ×4 languages** | EN / RU / ES / ZH, dark UI, phone-adaptive layout (nav collapses to a wrap bar ≤760 px) |
-| ⚙️ **Settings tab** | Carousel & clock format, language, brightness + night mode (hours + dim level), background colour, corner animation, photo theme upload |
-| 📅 **Calendar** | Public-holiday highlighting, 40+ countries or auto by external IP (date.nager.at, cached for a year) |
-| 🔒 **Safe OTA** | Firmware tab uploads are fingerprint-checked (chip, flash, display pins) — a foreign build is rejected **without writing**, the old firmware keeps running |
-| 📡 **HTTP API** | [`/api/status`](docs/HTTP-API.md), `/api/set`, `/api/refresh`, WiFi setup, icon/photo upload — script it with `curl` |
-| 🧰 **Runs for weeks** | Watchdog-safe fetch scheduler, heap-gated TLS (no OOM resets), NTP sync, caches survive reboots |
+| Часть | Язык | Где |
+|---|---|---|
+| Прошивка (вся логика, экраны, сеть) | **C++** (Arduino framework, ESP8266) | [`src/main.cpp`](src/main.cpp) + [`src/*.h`](src) |
+| Веб-интерфейс (встроен в прошивку, живёт на устройстве) | **HTML + CSS + JavaScript** | raw-строки `PAGE[]`, `SETUP_PAGE[]` в `main.cpp` |
+| Инструменты сборки ассетов/шрифтов | **Python + Node.js** | [`tools/`](tools) |
+| Сборка | **PlatformIO**, пинованные версии — повторяемый образ | [`platformio.ini`](platformio.ini) |
 
-### 🖼 Screenshots
+Веб-интерфейс не тянет ничего из интернета — ни библиотек, ни шрифтов: он
+отдаётся прямо с часов и работает в офлайне.
 
-> Photos of the clock face and the web UI land in [`assets/`](assets/).
-> Contributions welcome!
+## 🌐 Мультиязычность — 4 языка из коробки
 
-### 🧩 Compatible hardware
+**EN · RU · ES · ZH** — весь интерфейс, включая сообщения об ошибках,
+подсказки, всплывающие алерты и статусы. Переключение в веб-UI мгновенное
+(без перезагрузки страницы), выбор запоминается на устройстве и синхронизируется
+с языком экрана. Заголовки вкладок, настроек и блоков, часы (12/24), алерты
+сканера Wi-Fi, ошибки загрузки фото, геолокации и обновлений — все переведены.
 
-Tested on **SD PRO** (both pin revisions) — the cheap Cyrillic-market SmallTV
-clone — and on NodeMCU + 1.3" ST7789. Electrically it is the
-[GeekMagic SmallTV / SmallTV-Ultra](https://github.com/GeekMagicClock/smalltv-ultra)
-family: **ESP8266 + ST7789 240×240 @ SPI 40 MHz, 4 MB flash, GPIO5 backlight
-(active LOW)**.
+## ✨ Все преимущества
 
-> ⚠️ **SmallTV-Pro is ESP32 — not supported.** Flash at your own risk, keep a
-> [backup](docs/FLASHING.md#0-backup-recommended) first.
+### 💰 Криптовалюты
+- Каталог **CoinGecko top-250** с живым поиском и добавлением вручную
+- До **4 монет** главным экраном + до **3** на вторичном рынке
+- График **48 свечей** или линия, автообновление ~60 с
+- Котировки кэшируются на карте — после включения/перезагрузки данные видны сразу, без ожидания сети
+- Часовой пояс через POSIX-строку, NTP-синхронизация
 
-### 🚀 Quick start
+### 🌤 Погода — два провайдера, работают оба
+- **Open-Meteo** — без ключа и регистрации; **OpenWeatherMap** — по ключу; переключение на лету, без перезагрузки
+- **Автокомплит города** (до 5 результатов): понимает **русский и любую латиницу** — `Витебск` находит `Витебск,BY` так же, как `Vitebsk`
+- **«Моё местоположение»** — геолокация браузера или определение по IP
+- Прогноз на 5 дней + текущие условия, обновление каждые 10 минут
+- Город хранится в формате `Имя,CC` и корректно принимается **обоими** провайдерами
+- **Пустой город по умолчанию** и «гейт»: если города нет — устройство не долбит API лимитами, а показывает «no city» (на выбранном языке)
 
-**1. Download** the [latest release](https://github.com/sam8ac/BroClock-Pro/releases/latest)
-(`SDP_firmware.bin` — app image; `BroClock_Pro_factory.bin` — full 4 MB).
+### 🎨 Темы и внешний вид
+- **8 тем** с горизонтальной лентой выбора и отметкой текущей
+- Карусель: отметка любых тем, интервал 5–900 с
+- Ночной режим: часы снижения яркости + отдельный уровень
+- Цвет фона (готовые оттенки + палитра), угловая анимация Classic
+- **Тема Фото**: загрузка картинки из браузера, авто-обрезка под 240×240, до 256 КБ, первый кадр GIF
 
-**2. First flash over USB-UART:**
+### 🧭 Веб-интерфейс
+- Раздельные вкладки: **Темы · Настройки · Crypto · Погода · WiFi · Прошивка**; «Настройки» визуально разбита на блоки (карусель / часы и язык / подсветка / анимация / фото / календарь)
+- Адаптивная вёрстка: на телефоне навигация превращается в ленту кнопок
+- Всё применяется мгновенно, без перезагрузки страницы
+
+### 📡 WiFi и подключение
+- **Captive portal** первого запуска: точка `BroClock-PRO` → `192.168.4.1` → выбор сети
+- Сканер сетей с уровнями сигнала, сохранённая сеть подключается сама
+- Когда уже подключены к выбранной сети — SSID только для чтения, пароль скрыт, кнопка неактивна («Подключено»): случайно снести рабочее подключение нельзя
+- Возможность «Забыть сеть» одной кнопкой
+
+### 🔒 Безопасность и стабильность
+- **OTA с проверкой отпечатка**: принимаются только образы этой сборки (чип, флеш, пины дисплея) — чужая прошивка **не запишется**, старая продолжит работать. Испорченный/переименованный файл не «кирпичит» часы
+- **Heap-гейты перед TLS** (7550/12000 байт): нет OOM-перезагрузок даже с 4 монетами и свечами; RAM — 69 %
+- Погодные/крипто-кэши переживают перезагрузку; Brexit-безопасный планировщик фетчей, watchdog-safe
+- Пароли не отображаются в UI, Wi-Fi хранит ESP8266 в своём хранилище
+
+### 📅 Календарь и прочее
+- Праздники **40+ стран**, авто-определение страны по IP, кэш на год (date.nager.at)
+
+### 🛠 Разработка и эксплуатация
+- [Полная инструкция по установке](docs/INSTALL.md): 3 ОС, веб-прошивка из браузера, бэкап, откат, troubleshooting-таблица, FAQ
+- **Windows-инсталлятор одной кнопкой** (`tools\flash_broclock.bat`): сам найдёт CH340, прошьёт и проверит хеш
+- **HTTP API** (`/api/status`, `/api/set`, `/api/refresh`, `/api/city`, `/api/wifi`…) — интеграция с Home Assistant и скриптами
+- **Воспроизводимая сборка**: пинованные версии платформы/библиотек, авто-патч фреймворка (`tools/apply_framework_patches.py`), CI собирает обе ревизии плат на каждый push
+- Лицензия **MIT** — делайте с часами что угодно
+
+## 🖼 Скриншоты
+
+> Фото часов и веб-интерфейса — в [`assets/`](assets/PHOTOS.md).
+
+## 🧩 Совместимость
+
+Проверено на **SD PRO** (обе ревизии пинов) и NodeMCU + ST7789; электрически
+совместимо с семейством [GeekMagic SmallTV / SmallTV-Ultra](https://github.com/GeekMagicClock/smalltv-ultra).
+
+> ⚠️ **SmallTV-Pro (ESP32) не поддерживается.** Первое включение требует
+> USB-UART, дальше — OTA. Полная таблица устройств и все шаги:
+> [docs/INSTALL.md](docs/INSTALL.md).
+
+## 🚀 Быстрый старт
 
 ```bash
+# 1. скачать SDP_firmware.bin из Releases и прошить
 python -m esptool --port COM5 --baud 460800 write-flash 0x0 SDP_firmware.bin
+
+# 2. подключиться к точке BroClock-PRO, открыть http://192.168.4.1
+# 3. выбрать свою Wi-Fi сеть — часы в LAN, IP на экране
+# 4. дальше обновления — во вкладке «Прошивка»
 ```
 
-Windows? Just run `tools\flash_broclock.bat` — it finds the CH340 port, writes
-and hash-verifies for you.
+Windows проще: запустить `tools\flash_broclock.bat` рядом с `.bin`.
 
-**3. Bootstrap:** the clock starts a hotspot `BroClock-PRO` (open) →
-<http://192.168.4.1> → pick your Wi-Fi → the IP appears on the clock face and
-at the top of the web UI.
-
-**4. From then on: OTA** in the **Прошивка / Firmware** tab of the web UI.
-
-Full walkthrough: **[docs/FLASHING.md](docs/FLASHING.md)**
-
-### 🔨 Build from source
+## 🔨 Сборка из исходников
 
 ```bash
 git clone https://github.com/sam8ac/BroClock-Pro.git
 cd BroClock-Pro
-pio run -e sdpro        # or sdpro_alt for the alternate pin revision
+pio run -e sdpro        # или sdpro_alt для альтернативной ревизии
 ```
 
-Versions are **pinned** (`platformio.ini`) so any machine reproduces the same
-image; the SDPRO framework patches (heap rescue, BearSSL 6 s timeout) are
-re-applied automatically by `tools/apply_framework_patches.py` on every
-build. CI builds both envs on every push.
+## 🗺 Roadmap
 
-### 🗂 Web UI map
+- [x] 8 тем + карусель, 4-язычный веб-UI, вкладки Темы/Настройки с блоками
+- [x] Два погодных провайдера, автокомплит города (ru+en), праздники
+- [x] OTA с отпечатком, кэши, heap-гейты, Windows-инсталлятор
+- [ ] MQTT / автообнаружение Home Assistant
+- [x] Кириллица в названиях городов (Open-Meteo, `language=ru`)
+- [ ] Импорт тем по URL
 
-Tabs: **Темы** (pick carousel themes) · **Настройки** (carousel, clock &
-language, backlight, animation, photo, calendar) · **Crypto** · **Погода** ·
-**WiFi** · **Прошивка** (OTA).
+## 🤝 Contributing
 
-### 📡 Automation
+Issues и PR приветствуются — чек-лист в
+[.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md).
+Локализация — самый простой старт: весь словарь интерфейса — одна таблица в
+начале `src/main.cpp`.
 
-```bash
-curl "http://DEVICE_IP/api/set?key=city&value=Vitebsk"
-curl "http://DEVICE_IP/api/refresh"
-curl "http://DEVICE_IP/api/status" | jq .market
-```
+## ⭐ Похожие проекты
 
-See [docs/HTTP-API.md](docs/HTTP-API.md) for everything, including Home
-Assistant-style integrations.
+- [Times-Z/GeekMagic-Open-Firmware](https://github.com/Times-Z/GeekMagic-Open-Firmware) — GPLv3 open firmware для GeekMagic / HelloCubic
+- [aydarik/geekmagic-tv-esp8266](https://github.com/aydarik/geekmagic-tv-esp8266) — MIT ESP8266 firmware для GeekMagic SmallTV
+- [GeekMagicClock/smalltv-ultra](https://github.com/GeekMagicClock/smalltv-ultra) — официальные прошивки Ultra и мануалы
 
-### 🗺 Roadmap
+## 📜 Лицензия
 
-- [x] 8 themes + carousel, 4-language web UI, split Настройки tab
-- [x] Dual weather sources, city autocomplete, holidays
-- [x] Fingerprint-checked OTA, `flash_broclock.bat` one-click installer
-- [ ] MQTT / Home Assistant auto-discovery
-- [ ] Native Cyrillic chart labels
-- [ ] Theme Marketplace (import from URL)
-
-### 🤝 Contributing
-
-Issues and PRs welcome — see
-[.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md) for the
-checklist. Localisation is the easiest way to start: the UI vocabulary lives in
-one dictionary at the top of `src/main.cpp`.
-
-### ⭐ Related projects
-
-- [Times-Z/GeekMagic-Open-Firmware](https://github.com/Times-Z/GeekMagic-Open-Firmware) — GPLv3 open firmware for GeekMagic / HelloCubic
-- [aydarik/geekmagic-tv-esp8266](https://github.com/aydarik/geekmagic-tv-esp8266) — MIT ESP8266 firmware for GeekMagic SmallTV
-- [GeekMagicClock/smalltv-ultra](https://github.com/GeekMagicClock/smalltv-ultra) — official Ultra firmware & manuals
-
-### 📜 License
-
-[MIT](LICENSE) © 2026 sam8ac — hardware drivers and artwork in `assets/`,
-`data/` and `src/*.h` follow the licenses of their respective sources.
+[MIT](LICENSE) © 2026 sam8ac
 
 ---
 
 <p align="center">
-  <sub>Keywords for search: smalltv · geekmagic · GeekMagicClock · SmallTV-Ultra · ESP8266 · ST7789 · retro clock · crypto ticker · weather station · PlatformIO · SD PRO</sub>
+  <sub>Поисковые теги / keywords: smalltv · geekmagic · GeekMagicClock · SmallTV-Ultra · ESP8266 · ST7789 · retro clock · crypto ticker · weather station · PlatformIO · SD PRO · Arduino</sub>
 </p>
