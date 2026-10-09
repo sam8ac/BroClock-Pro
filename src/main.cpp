@@ -114,6 +114,30 @@ static inline const char* geoLang(){
   if(cfg.lang == "zh") return "zh";
   return "en";
 }
+// IANA zone (ip-api) -> POSIX TZ.  No DST rules: a fixed offset is fine for
+// a desk clock, the dropdown still offers full control afterwards.
+static const char* posixFromIana(const String& iana, int offSec){
+  static const char* T[][2] = {
+    {"Europe/Minsk","MSK-3"},{"Europe/Kaliningrad","EET-2"},{"Europe/Moscow","MSK-3"},
+    {"Europe/Kyiv","EET-2"},{"Europe/Kiev","EET-2"},{"Europe/Warsaw","CET-1"},
+    {"Europe/Berlin","CET-1"},{"Europe/Paris","CET-1"},{"Europe/Madrid","CET-1"},
+    {"Europe/Rome","CET-1"},{"Europe/Belgrade","CET-1"},{"Europe/Istanbul","+03"},
+    {"Europe/Athens","EET-2"},{"Europe/Bucharest","EET-2"},{"Europe/Lisbon","WET0"},
+    {"Europe/London","GMT0"},{"Asia/Almaty","ALMT-6"},{"Asia/Yekaterinburg","+05"},
+    {"Asia/Yerevan","+04"},{"Asia/Baku","+04"},{"Asia/Tbilisi","+04"},
+    {"Asia/Omsk","+06"},{"Asia/Novosibirsk","+07"},{"Asia/Krasnoyarsk","+07"},
+    {"Asia/Irkutsk","+08"},{"Asia/Yakutsk","+09"},{"Asia/Vladivostok","+10"},
+    {"Asia/Jerusalem","IST-2"},{nullptr,nullptr}
+  };
+  if(iana.length()){
+    for(int i = 0; T[i][0]; i++) if(iana == T[i][0]) return T[i][1];
+  }
+  int o = offSec / 3600;                      // fall back to the raw offset
+  static char b[12];
+  if(o == 0) return "UTC0";
+  snprintf(b, sizeof(b), "%s%d", o > 0 ? "UTC-" : "UTC+", o > 0 ? o : -o);
+  return b;
+}
 // BigDataCloud reverse-geocoder language (falls back to en for anything else)
 static inline String geoLocalityLang(){
   if(cfg.lang == "ru" || cfg.lang == "es" || cfg.lang == "zh") return String(cfg.lang);
@@ -2307,7 +2331,7 @@ static void maybeAutoGeo(){
   WiFiClient c;
   c.setTimeout(6000);
   if(!c.connect("ip-api.com", 80)) return;
-  c.print("GET /json/?fields=status,lat,lon,city,countryCode HTTP/1.1\r\n"
+  c.print("GET /json/?fields=status,lat,lon,city,countryCode,timezone,offset HTTP/1.1\r\n"
           "Host: ip-api.com\r\nConnection: close\r\n\r\n");
   String raw;
   uint32_t t0 = millis();
@@ -2354,6 +2378,15 @@ static void maybeAutoGeo(){
   wxErr = "";
   omGeoInvalidate();
   pokeWx();
+  if(cfg.tz == "MSK-3"){          // untouched factory default: adopt the IP zone
+    const char* pz = posixFromIana(String((const char*)(d["timezone"] | "")),
+                                    d["offset"] | 0);
+    if(pz && *pz && strcmp(pz, cfg.tz.c_str()) != 0){
+      cfg.tz = pz;
+      configTime(cfg.tz.c_str(), "pool.ntp.org", "time.google.com", "time.cloudflare.com");
+      Serial.printf("[geo] auto tz: %s\n", pz);
+    }
+  }
   saveCfg();
   Serial.printf("[geo] auto city: %s\n", cfg.city.c_str());
 }
@@ -4894,12 +4927,13 @@ function fillTz(cur){
     var found=false;
     for(var i=0;i<el.options.length;i++) if(el.options[i].value===cur) found=true;
     if(!found){
-      // "MSK-3" and friends encode the same POSIX offset as "UTC-3" - match
-      // by offset so the dropdown never grows a "свой POSIX" entry for them
+      // "MSK-3" and friends describe the same zone as the POSIX value "UTC-3"
+      // (POSIX offset counts WEST, so UTC+3 is written "UTC-3"): match on that
+      // value so the dropdown never grows a "custom POSIX" entry for them
       var m=cur.match(/([-+])(\d+)$/);
       if(m){
-        var off=(m[1]==='-'?-1:1)*parseInt(m[2],10);
-        var want=(off===0?'UTC0':('UTC'+(off>0?'-':'+')+Math.abs(off)));
+        var human=(m[1]==='-'?1:-1)*parseInt(m[2],10);   // POSIX sign is inverted
+        var want=(human===0?'UTC0':('UTC'+(human>0?'-':'+')+Math.abs(human)));
         for(var i=0;i<el.options.length;i++) if(el.options[i].value===want){ cur=want; found=true; break; }
       }
     }
