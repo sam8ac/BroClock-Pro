@@ -1198,7 +1198,9 @@ static void maybeFetchQuotes(){
   if(t - q3Try < 20000UL) return;
   if(ESP.getMaxFreeBlockSize() < 12000UL) return;   // no contiguous room for TLS
   q3Try = t;
-  if(fetchQuotes()){ mark(RM_PRICE); coolUntil = millis() + 4000UL; }
+  bool qok = fetchQuotes();
+  if(qok) mark(RM_PRICE);
+  coolUntil = millis() + 4000UL;   // space the next fetcher even on failure
   lastPhase = "q3"; lastPhaseMs = millis() - t;
 }
 
@@ -1802,6 +1804,7 @@ static bool priceCacheLookup(const String& sym, float& price, float& chg, uint32
 
 static void priceCacheStore(){
   if(!mkOk || mkPrice <= 0 || cfg.sym.length() >= 24) return;
+  if(ESP.getMaxFreeBlockSize() < 9000UL) return;   // FS store on a torn heap
   LittleFS.remove(PRICE_CACHE ".new");            // orphan from a torn store
   File src = LittleFS.open(PRICE_CACHE, "r");
   File out = LittleFS.open(PRICE_CACHE ".new", "w");
@@ -1866,6 +1869,7 @@ static bool chartCacheLookup(const String& sym, const String& range){
 
 static void chartCacheStore(){
   if(cdN < 2 || cfg.sym.length() >= 24) return;
+  if(ESP.getMaxFreeBlockSize() < 9000UL) return;   // FS store on a torn heap
   LittleFS.remove(CHART_CACHE ".new");            // orphan from a torn store
   File src = LittleFS.open(CHART_CACHE, "r");
   File out = LittleFS.open(CHART_CACHE ".new", "w");
@@ -1899,6 +1903,7 @@ static void chartCacheStore(){
 
 static void cacheSaveWx(){
   if(!wxOk) return;
+  if(ESP.getMaxFreeBlockSize() < 9000UL) return;   // FS store on a torn heap
   File f = LittleFS.open("/wxc.bin", "w");
   if(!f) return;
   WxC c;
@@ -2176,6 +2181,7 @@ static String holNextStr(int mon, int mday){
   return "";
 }
 static void maybeFetchHolidays(){
+  if(fetchHold()) return;         // link just up: quiet window
   if(!cfg.hol) return;
   uint32_t t = millis();
   if(t < holDelayUntil) return;                // just-settled /api/set, browser busy
@@ -2190,10 +2196,12 @@ static void maybeFetchHolidays(){
   holTry = t;
   String cc = cfg.hctry.length() == 2 ? cfg.hctry : hctryGeo;
   if(!cc.length()){
-    if(!fetchGeoCountry()) return;
+    if(!fetchGeoCountry()) { coolUntil = millis() + 4000UL; return; }
     cc = hctryGeo;
+    coolUntil = millis() + 3000UL;   // let the heap rebound before the nager TLS
   }
   if(fetchHolidays(cc, yr)) mark(RM_PRICE | RM_CHART);   // repaint the calendar
+  coolUntil = millis() + 4000UL;      // space the next fetcher
 }
 
 static bool cacheLoadAll(){
@@ -6527,6 +6535,8 @@ static void fwUpload(){
 // ---------------------------------------------------------------- setup
 void setup(){
   Serial.begin(115200);
+  Serial.printf("[boot] rst=%s | %s\n", ESP.getResetReason().c_str(),
+                ESP.getResetInfo().c_str());
   bootMs = millis();
   Serial.println("\n[boot] BroClock Pro crypto-ticker");
 
