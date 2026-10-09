@@ -568,6 +568,17 @@ static bool srvSkip = false;               // in-handler fetch: closing would ki
 static void srvClose(){ if(!srvDown){ server.stop(); srvDown = true; } }
 static void srvOpen(){ if(srvDown){ server.begin(); srvDown = false; } }
 
+// Quiet window after a link-up: no TLS from the loop fetchers while the DNS
+// stack, the heap and the captive/portal page flow settle.  A clean install
+// used to fire candle+price+quotes ~2s after the STA came up: every fetch
+// died as "dns timeout" or shredded the heap into minutes of "heap low".
+static uint32_t fetchHoldUntil = 0;
+static bool fetchHold(){
+  if(!fetchHoldUntil) return false;
+  if(millis() >= fetchHoldUntil){ fetchHoldUntil = 0; return false; }
+  return true;
+}
+
 // shared TLS GET setup: configures the client, issues the request and handles
 // the 429 backoff.  Returns false with mkErr set; `code` carries the status.
 static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
@@ -588,11 +599,14 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
     if(host.length()){
       IPAddress dip;
       uint32_t td = millis();
-      if(WiFi.hostByName(host.c_str(), dip, 4000) <= 0){
-        mkErr = "dns timeout";
+      if(WiFi.hostByName(host.c_str(), dip, 3000) <= 0){
+        delay(500);                  // link just up / heap shifted: one retry
+        if(WiFi.hostByName(host.c_str(), dip, 2500) <= 0){
+          mkErr = "dns timeout";
         coolUntil = millis() + 5000UL;
         Serial.printf("[dns] %s FAIL %lums\n", host.c_str(), (unsigned long)(millis() - td));
         return false;
+        }
       }
       if(millis() - td > 500)
         Serial.printf("[dns] %s %lums\n", host.c_str(), (unsigned long)(millis() - td));
@@ -1177,6 +1191,7 @@ static bool fetchQuotes(){
 
 static void maybeFetchQuotes(){
   uint32_t t = millis();
+  if(fetchHold()) return;         // link just up: DNS/heap settle window
   if(t < coolUntil) return;
   if(cfg.theme != "crypto3") return;
   if(q3At && t - q3At < (uint32_t)cfg.refresh * 1000UL) return;
@@ -2215,6 +2230,7 @@ static void saveCfg();
 
 static void maybeFetchWx(){
   uint32_t t = millis();
+  if(fetchHold()) return;            // link just up: quiet window
   if(t < coolUntil) return;          // 429/OOM/settle window: no TLS while sockets are busy
   if(!cfg.city.length()){ maybeAutoGeo(); return; }   // clean install: resolve by IP first
   // OWM is a separate provider: CoinGecko's 429 cooldown must not hold it back
@@ -2244,16 +2260,16 @@ static void maybeFetchWx(){
 // full reset so the stale cache is thrown away.
 static void pokeWx(){
   wxAt = 0; fcAt = 0;
-  wxTry = fcTry = millis() - 16000UL;
+  wxTry = fcTry = millis() - 61000UL;   // 61s: maybeFetchWx gates at 60s -> next tick fetches
   q3At = 0; q3Try = millis() - 21000UL;   // 21s: maybeFetchQuotes gates at 20s
 }
 
 // soft nudge: refresh only the pieces that have no data yet.
 // switching themes must never discard a valid cache (avoids a burst of HTTP + 429).
 static void bumpWx(){
-  if(!wxOk) { wxAt = 0; wxTry = millis() - 16000UL; }
-  if(fcn == 0) { fcAt = 0; fcTry = millis() - 16000UL; }
-  if(!q3Ok) { q3At = 0; q3Try = millis() - 16000UL; }
+  if(!wxOk) { wxAt = 0; wxTry = millis() - 61000UL; }
+  if(fcn == 0) { fcAt = 0; fcTry = millis() - 61000UL; }
+  if(!q3Ok) { q3At = 0; q3Try = millis() - 21000UL; }
 }
 
 // A clean install ships an empty city: ask the device's outward IP for the
@@ -2327,6 +2343,8 @@ static void maybeAutoGeo(){
 static void fetchData(bool force){
   uint32_t now = millis();
   static uint32_t dSkip = 0;     // continuous "fragmented heap" window
+  static uint32_t failSince = 0; // continuous-failure window (dns/connection cycles)
+  if(fetchHold()) return;         // link just up: DNS/heap settle window
   if(now < coolUntil) return;
   uint32_t every = (uint32_t)cfg.refresh * 1000UL;
   if(!force && mkOk && now - mkAt < every) return;
@@ -2350,11 +2368,19 @@ static void fetchData(bool force){
   bool ok = fetchPrice();
   lastPhase = "price"; lastPhaseMs = millis() - t0;
   if(ok){
+    failSince = 0;
     priceCacheStore();
     coolUntil = millis() + 4000UL;   // space the next TLS: back-to-back fetches shred the heap
     mark(RM_HEAD | RM_PRICE | RM_FOOT);
     Serial.printf("[data] price=%.4f chg=%.2f\n", mkPrice, mkChg);
   } else {
+    if(!failSince) failSince = now;
+    else if(now - failSince > 180000UL && (now - bootMs) > 240000UL){
+      // a stuck dns/connection cycle keeps every fetch (and the wedge
+      // detectors below) from ever succeeding - reboot once data is 3min stale
+      Serial.println("[data] failing 3min -> restart");
+      delay(50); Serial.flush(); ESP.restart();
+    }
     mark(RM_PRICE | RM_FOOT);
     if(mkErr.startsWith("no memory") ||
        mkErr.startsWith("connection failed")) lastFetchTry = millis() - 15000UL;  // retry in 5s
@@ -2371,6 +2397,7 @@ static bool candlesBootTried = false;       // one attempt on pristine boot heap
 static void fetchCandlesData(){
   uint32_t now = millis();
   static uint32_t cSkip = 0;
+  if(fetchHold()) return;         // link just up: DNS/heap settle window
   if(now < coolUntil) return;
   if(now < truncUntil) return;
   // First attempt of the boot runs at up>=8s on PRISTINE heap: by the time
@@ -5859,7 +5886,7 @@ static void handleSet(){
     uint32_t t = millis();          // make the age gates pass right now so both
     wxAt = t - 600000UL;            // current weather and forecast refetch from
     fcAt = t - 1800000UL;           // the new source without blanking the data
-    wxTry = fcTry = t - 16000UL;
+    wxTry = fcTry = t - 61000UL;
     omGeoInvalidate();              // stored coordinates may belong elsewhere
   } else if(k == "chart"){
     // data is already shared: line is built from the same candles -> no network wait
@@ -6562,6 +6589,7 @@ void setup(){
                   WiFi.softAPIP().toString().c_str());
   }
 
+  fetchHoldUntil = millis() + 12000UL;   // first fetches start on a settled link
   applyDns();
   Serial.printf("[net] dns1=%s dns2=%s\n", WiFi.dnsIP(0).toString().c_str(),
                 WiFi.dnsIP(1).toString().c_str());
@@ -6710,7 +6738,13 @@ void loop(){
   }
 
   // access point fallback: raise it when STA is lost, drop it after STA returns
+  static bool wasStaUp = false;
   if(WiFi.isConnected()){
+    if(!wasStaUp){
+      wasStaUp = true;
+      fetchHoldUntil = millis() + 12000UL;
+      Serial.println("[net] sta up -> quiet 12s");
+    }
     portalStop();
     if(WiFi.getMode() == WIFI_AP_STA){
       if(!wifiApOffAt) wifiApOffAt = now + 90000UL;
