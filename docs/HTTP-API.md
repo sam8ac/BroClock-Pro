@@ -40,17 +40,24 @@ looping on errors). `lang` accepts `en|ru|es|zh` and re-renders the web UI.
 curl http://DEVICE_IP/api/refresh          # weather + market fetch now
 ```
 
+`refresh` ages the market/candles stamps (bypasses the cache and the failure
+back-offs) and pokes the weather fetchers — the same request the Crypto tab’s
+**Refresh data now** button fires.
+
 ## Weather
 
 ```bash
 curl "http://DEVICE_IP/api/city?q=Vite"    # city autocomplete (5 results)
-curl "http://DEVICE_IP/api/geocode?q=Minsk"
-curl "http://DEVICE_IP/api/geoip"          # resolve by external IP
+curl "http://DEVICE_IP/api/geocode?lat=53.9&lon=27.56"   # coords -> city (keyless)
+curl "http://DEVICE_IP/api/geoip"          # resolve by external IP: lat/lon + city/countryCode
 ```
 
 `/api/city` backs onto Open-Meteo geocoding; Cyrillic queries are asked in
 Russian automatically. Results are `Name,CC` — that exact form is what
-`city=` expects.
+`city=` expects. `/api/geocode` and `/api/geoip` are keyless (BigDataCloud
+reverse geocoder, ip-api) — no OpenWeatherMap subscription needed for
+“My location”. On a clean install the device itself fills `city` from
+`/api/geoip` once and saves it.
 
 ## WiFi
 

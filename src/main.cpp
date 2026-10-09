@@ -114,6 +114,11 @@ static inline const char* geoLang(){
   if(cfg.lang == "zh") return "zh";
   return "en";
 }
+// BigDataCloud reverse-geocoder language (falls back to en for anything else)
+static inline String geoLocalityLang(){
+  if(cfg.lang == "ru" || cfg.lang == "es" || cfg.lang == "zh") return String(cfg.lang);
+  return String("en");
+}
 // OWM local_names key used by the fallback geocoder
 static inline const char* owmLocKey(){
   if(cfg.lang == "es") return "es";
@@ -1178,7 +1183,7 @@ static void maybeFetchQuotes(){
   if(t - q3Try < 20000UL) return;
   if(ESP.getMaxFreeBlockSize() < 12000UL) return;   // no contiguous room for TLS
   q3Try = t;
-  if(fetchQuotes()) mark(RM_PRICE);
+  if(fetchQuotes()){ mark(RM_PRICE); coolUntil = millis() + 4000UL; }
   lastPhase = "q3"; lastPhaseMs = millis() - t;
 }
 
@@ -2205,9 +2210,13 @@ static void oomFailCheck(const char* what){
   } else oomFailN = 0;
 }
 
+static void maybeAutoGeo();
+static void saveCfg();
+
 static void maybeFetchWx(){
   uint32_t t = millis();
   if(t < coolUntil) return;          // 429/OOM/settle window: no TLS while sockets are busy
+  if(!cfg.city.length()){ maybeAutoGeo(); return; }   // clean install: resolve by IP first
   // OWM is a separate provider: CoinGecko's 429 cooldown must not hold it back
   // weather and forecast are each throttled by their own cache age AND a shared
   // 15s probe gate, and only ONE request runs per call (forecast also needs an
@@ -2247,10 +2256,77 @@ static void bumpWx(){
   if(!q3Ok) { q3At = 0; q3Try = millis() - 16000UL; }
 }
 
+// A clean install ships an empty city: ask the device's outward IP for the
+// city name (keyless ip-api over plain http - no TLS buffer needed) and store
+// it as "Name,CC".  An address without a city name falls back to the keyless
+// reverse geocoder (same call /api/geocode makes).  Retries at most every 20
+// minutes until it succeeds once; manual entry always wins afterwards.
+static void maybeAutoGeo(){
+  static uint32_t tryAt = 0;
+  uint32_t t = millis();
+  if(tryAt && t - tryAt < 1200000UL) return;      // 20 min backoff between tries
+  if(WiFi.status() != WL_CONNECTED) return;       // nothing to ask yet
+  if(ESP.getMaxFreeBlockSize() < 12000UL) return; // same TLS floor as the fetchers
+  tryAt = t;
+  WiFiClient c;
+  c.setTimeout(6000);
+  if(!c.connect("ip-api.com", 80)) return;
+  c.print("GET /json/?fields=status,lat,lon,city,countryCode HTTP/1.1\r\n"
+          "Host: ip-api.com\r\nConnection: close\r\n\r\n");
+  String raw;
+  uint32_t t0 = millis();
+  while(millis() - t0 < 6000){
+    while(c.available()) raw += (char)c.read();
+    if(raw.length() > 2048) break;
+    if(!c.connected() && !c.available()) break;
+    delay(1);
+  }
+  c.stop();
+  int h = raw.indexOf("\r\n\r\n");
+  if(h < 0) return;
+  JsonDocument d;
+  if(deserializeJson(d, raw.substring(h + 4))) return;
+  if(strcmp(d["status"] | "", "success") != 0) return;
+  String nm = String((const char*)(d["city"] | ""));
+  String cc = String((const char*)(d["countryCode"] | ""));
+  if(!nm.length()){                       // no city name: reverse the coords
+    float la = d["lat"] | 0.0f, lo = d["lon"] | 0.0f;
+    if(la > -90.0f && la < 90.0f && lo > -180.0f && lo < 180.0f){
+      String url = String("https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=") +
+                   String(la, 4) + "&longitude=" + String(lo, 4) +
+                   "&localityLanguage=" + geoLocalityLang();
+      static const char* F =
+        "{\"city\":true,\"locality\":true,\"principalSubdivision\":true,\"countryCode\":true}";
+      JsonDocument r;
+      srvSkip = true;
+      bool gok = httpJson(url, r, F);
+      srvSkip = false;
+      if(!gok) return;
+      const char* cn = r["city"] | "";
+      if(!cn || !*cn) cn = r["locality"] | "";
+      if(!cn || !*cn) cn = r["principalSubdivision"] | "";
+      if(cn && *cn) nm = String(cn);
+      cc = String((const char*)(r["countryCode"] | ""));
+    }
+  }
+  nm.trim();
+  if(!nm.length()) return;
+  String v = nm + (cc.length() ? ("," + cc) : "");
+  if(v.length() > 40) v = v.substring(0, 40);
+  cfg.city = v;                // same tail as handleSet city
+  wxOk = false; fcn = 0;
+  wxErr = "";
+  omGeoInvalidate();
+  pokeWx();
+  saveCfg();
+  Serial.printf("[geo] auto city: %s\n", cfg.city.c_str());
+}
+
 // price only - a single lightweight HTTP round trip so loop() stays under the
 // 8s soft WDT even on a slow link.
 static void fetchData(bool force){
   uint32_t now = millis();
+  static uint32_t dSkip = 0;     // continuous "fragmented heap" window
   if(now < coolUntil) return;
   uint32_t every = (uint32_t)cfg.refresh * 1000UL;
   if(!force && mkOk && now - mkAt < every) return;
@@ -2260,8 +2336,14 @@ static void fetchData(bool force){
   // with a hard Exception(29) instead of a clean ssl=-1000 - that path retries
   // in 5s with a short message (httpGetStart).
   if(ESP.getMaxFreeBlockSize() < 12000UL){
+    if(!dSkip) dSkip = now;
+    else if(now - dSkip > 150000UL){
+      Serial.println("[data] heap wedge 2.5min -> restart");
+      delay(50); Serial.flush(); ESP.restart();
+    }
     Serial.println("[data] skip: fragmented heap"); return;
   }
+  dSkip = 0;
   lastFetchTry = now;
   Serial.printf("[data] price %s\n", cfg.sym.c_str());
   uint32_t t0 = millis();
@@ -2269,6 +2351,7 @@ static void fetchData(bool force){
   lastPhase = "price"; lastPhaseMs = millis() - t0;
   if(ok){
     priceCacheStore();
+    coolUntil = millis() + 4000UL;   // space the next TLS: back-to-back fetches shred the heap
     mark(RM_HEAD | RM_PRICE | RM_FOOT);
     Serial.printf("[data] price=%.4f chg=%.2f\n", mkPrice, mkChg);
   } else {
@@ -2287,6 +2370,7 @@ static bool candlesBootTried = false;       // one attempt on pristine boot heap
 
 static void fetchCandlesData(){
   uint32_t now = millis();
+  static uint32_t cSkip = 0;
   if(now < coolUntil) return;
   if(now < truncUntil) return;
   // First attempt of the boot runs at up>=8s on PRISTINE heap: by the time
@@ -2302,8 +2386,14 @@ static void fetchCandlesData(){
   // same guard as fetchData, placed BEFORE the flags are consumed so a
   // skipped pass keeps candlesForce and retries in the next loop iteration
   if(ESP.getMaxFreeBlockSize() < 12000UL){
+    if(!cSkip) cSkip = now;
+    else if(now - cSkip > 150000UL){
+      Serial.println("[candle] heap wedge 2.5min -> restart");
+      delay(50); Serial.flush(); ESP.restart();
+    }
     Serial.println("[candle] skip: fragmented heap"); return;
   }
+  cSkip = 0;
   candlesBootTried = true;
   candlesForce = false;
   lastTry = now;
@@ -2313,6 +2403,7 @@ static void fetchCandlesData(){
   if(ok) buildLineFromCandles();
   if(ok){
     chartCacheStore();
+    coolUntil = millis() + 4000UL;   // space the next TLS (same as fetchData)
     mark(RM_CHART);
     Serial.printf("[candle] cd=%d ln=%d\n", cdN, lnN);
   } else {
@@ -4793,7 +4884,12 @@ function geoIp(btn){
   btn.disabled=true;
   if(msg)msg.textContent=tt('geoIpWait');
   fetch('/api/geoip').then(function(r){return r.json()}).then(function(j){
-    if(j&&typeof j.lat==='number'&&typeof j.lon==='number'){
+    if(j&&j.city){                       // ip-api names the city itself: no second hop
+      var cv=j.city+(j.countryCode?(','+j.countryCode):'');
+      var ei=document.getElementById('cityi'); if(ei)ei.value=cv;
+      if(msg)msg.textContent=tt('geoCityOk')+j.city+(j.countryCode?(' ('+j.countryCode+')'):'');
+      btn.disabled=false; set('city',cv);
+    }else if(j&&typeof j.lat==='number'&&typeof j.lon==='number'){
       applyGeo(btn, j.lat, j.lon);
     }else{
       btn.disabled=false;
@@ -5058,6 +5154,8 @@ document.addEventListener('DOMContentLoaded',function(){
 <option value=24>24 часа</option>
 <option value=12>12 часов (AM/PM)</option>
 </select>
+<label>Часовой пояс</label><select id=tzi onchange="set('tz',this.value)"></select>
+<div class=dim>POSIX-строка применяется сразу; синхронизация — NTP (пул UTC).</div>
 <label>Язык интерфейса</label>
 <select id=langsel onchange="set('lang',this.value)">
 <option value=en>English</option>
@@ -5177,8 +5275,6 @@ document.addEventListener('DOMContentLoaded',function(){
 <label>График</label><select id=chi onchange="selTouched=true;set('chart',this.value)">
 <option value=candle>Свечи</option><option value=line>Линия</option></select>
 <label>Обновление данных, сек</label><input id=refi type=number value=60 onchange="set('refresh',this.value)">
-<label>Часовой пояс</label><select id=tzi onchange="set('tz',this.value)"></select>
-<div class=dim>POSIX-строка применяется сразу; синхронизация — NTP (пул UTC).</div>
 <button onclick="fetch('/api/refresh').then(()=>st())">Обновить данные сейчас</button>
 <label>Вторичный рынок · до 3 монет</label>
 <div id=chips class=chips>…</div>
@@ -5877,6 +5973,7 @@ static void handleRefresh(){
   // happen in loop() where there are no competing socket/FS buffers
   mkAt = 0; lastFetchTry = 0;
   candlesForce = true;
+  coolUntil = millis() + 2000UL;   // let any in-flight fetch finish first
   pokeWx();
   if(cfg.theme == "crypto3"){ q3At = 0; q3Try = millis() - 21000UL; }
   server.send(200, "application/json", "{\"ok\":1}");
@@ -6072,26 +6169,53 @@ static void handleGeocode(){
     server.send(503, "application/json", "{\"error\":\"busy\"}");
     return;
   }
-  String url = String("https://api.openweathermap.org/geo/1.0/reverse?lat=") +
-               String(la, 4) + "&lon=" + String(lo, 4) +
-               "&limit=1&appid=" + OWM_KEY + langQ();
-  JsonDocument d;
-  srvSkip = true;                         // keep the listener: closing it would
-                                          // drop the client waiting for this reply
-  bool gok = httpJson(url, d);
-  srvSkip = false;
-  if(!gok){
+  // OWM reverse geocoding needs a PAID Geocoding subscription - free keys get
+  // 401, which is why "My location" always failed with "geocoder failed".
+  // The keyless BigDataCloud client geocoder answers first; OWM stays as the
+  // fallback for the owners of a paid key.
+  String nm = "", cc = "";
+  {
+    String url = String("https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=") +
+                 String(la, 4) + "&longitude=" + String(lo, 4) +
+                 "&localityLanguage=" + geoLocalityLang();
+    static const char* F =
+      "{\"city\":true,\"locality\":true,\"principalSubdivision\":true,\"countryCode\":true}";
+    JsonDocument d;
+    srvSkip = true;                     // keep the listener: closing it would
+                                        // drop the client waiting for this reply
+    bool gok = httpJson(url, d, F);
+    srvSkip = false;
+    if(gok){
+      const char* cn = d["city"] | "";
+      if(!cn || !*cn) cn = d["locality"] | "";
+      if(!cn || !*cn) cn = d["principalSubdivision"] | "";
+      if(cn && *cn) nm = String(cn);
+      cc = String((const char*)(d["countryCode"] | ""));
+    }
+  }
+  if(!nm.length() && OWM_KEY && OWM_KEY[0]){
+    String url = String("https://api.openweathermap.org/geo/1.0/reverse?lat=") +
+                 String(la, 4) + "&lon=" + String(lo, 4) +
+                 "&limit=1&appid=" + OWM_KEY + langQ();
+    JsonDocument d;
+    srvSkip = true;
+    bool gok = httpJson(url, d);
+    srvSkip = false;
+    if(gok){
+      JsonArray a = d.as<JsonArray>();
+      if(a.size()){
+        const char* an = a[0]["name"] | "";
+        if(an && *an){ nm = String(an); cc = String((const char*)(a[0]["country"] | "")); }
+      }
+    }
+  }
+  if(!nm.length()){
     server.send(502, "application/json", "{\"error\":\"geocoder failed\"}");
     return;
   }
-  JsonArray a = d.as<JsonArray>();
-  if(a.size() == 0){
-    server.send(404, "application/json", "{\"error\":\"not found\"}");
-    return;
-  }
   JsonDocument r;
-  r["city"] = String((const char*)(a[0]["name"] | ""));
-  r["country"] = String((const char*)(a[0]["country"] | ""));
+  r["city"] = nm;
+  r["country"] = cc;
   String out;
   serializeJson(r, out);
   server.send(200, "application/json", out);
@@ -6167,7 +6291,7 @@ static void handleGeoIp(){
     server.send(502, "application/json", "{\"error\":\"ip connect\"}");
     return;
   }
-  c.print("GET /json/?fields=status,lat,lon HTTP/1.1\r\n"
+  c.print("GET /json/?fields=status,lat,lon,city,countryCode HTTP/1.1\r\n"
           "Host: ip-api.com\r\nConnection: close\r\n\r\n");
   String raw;
   uint32_t t0 = millis();
@@ -6188,6 +6312,11 @@ static void handleGeoIp(){
   JsonDocument r;
   r["lat"] = d["lat"];
   r["lon"] = d["lon"];
+  const char* gc = d["city"] | "";        // city straight from the IP lookup
+  if(gc && *gc){
+    r["city"] = gc;
+    r["countryCode"] = d["countryCode"] | "";
+  }
   String out;
   serializeJson(r, out);
   server.send(200, "application/json", out);
