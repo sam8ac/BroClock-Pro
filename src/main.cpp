@@ -1196,7 +1196,7 @@ static void maybeFetchQuotes(){
   if(cfg.theme != "crypto3") return;
   if(q3At && t - q3At < (uint32_t)cfg.refresh * 1000UL) return;
   if(t - q3Try < 20000UL) return;
-  if(ESP.getMaxFreeBlockSize() < 12000UL) return;   // no contiguous room for TLS
+  if(ESP.getMaxFreeBlockSize() < 8300UL) return;   // no contiguous room for TLS
   q3Try = t;
   bool qok = fetchQuotes();
   if(qok) mark(RM_PRICE);
@@ -2192,7 +2192,7 @@ static void maybeFetchHolidays(){
   if(yr < 2020) return;                         // NTP not synced yet
   if(holOk && holYear == (uint16_t)yr) return;  // fresh for this year
   if(holTry && t - holTry < 30000UL) return;    // one retry every 30 seconds
-  if(ESP.getMaxFreeBlockSize() < 12000UL) return;
+  if(ESP.getMaxFreeBlockSize() < 8300UL) return;
   holTry = t;
   String cc = cfg.hctry.length() == 2 ? cfg.hctry : hctryGeo;
   if(!cc.length()){
@@ -2250,13 +2250,13 @@ static void maybeFetchWx(){
   bool wantW = haveCity && (wxOk ? (t - wxAt >= 600000UL) : true) && t - wxTry >= 60000UL;
   bool wantF = haveCity && (fcn > 0 ? (t - fcAt >= 1800000UL) : true) && t - fcTry >= 60000UL;
   if(wantW){
-    if(ESP.getMaxFreeBlockSize() < 12000UL) return;   // TLS below ~12k dies hard (Exception 29)
+    if(ESP.getMaxFreeBlockSize() < 8300UL) return;   // TLS below ~8.3k dies hard
     wxTry = t;
     if(fetchWeather()) mark(RM_HEAD | RM_PRICE | RM_CHART | RM_FOOT);
     else { mark(RM_PRICE | RM_CHART | RM_FOOT); oomFailCheck("wx"); }
     lastPhase = "wx"; lastPhaseMs = millis() - t;
   } else if(wantF && wxOk){   // forecast is a large payload: only when needed
-    if(ESP.getMaxFreeBlockSize() < 12000UL) return;
+    if(ESP.getMaxFreeBlockSize() < 8300UL) return;
     fcTry = t;
     if(fetchForecast()) mark(RM_HEAD | RM_PRICE | RM_CHART);   // HEAD: night/day temps
     else oomFailCheck("fc");
@@ -2290,7 +2290,7 @@ static void maybeAutoGeo(){
   uint32_t t = millis();
   if(tryAt && t - tryAt < 1200000UL) return;      // 20 min backoff between tries
   if(WiFi.status() != WL_CONNECTED) return;       // nothing to ask yet
-  if(ESP.getMaxFreeBlockSize() < 12000UL) return; // same TLS floor as the fetchers
+  if(ESP.getMaxFreeBlockSize() < 8300UL) return; // same TLS floor as the fetchers
   tryAt = t;
   WiFiClient c;
   c.setTimeout(6000);
@@ -2361,7 +2361,7 @@ static void fetchData(bool force){
   // fits in ~12k contiguous (proven live), below that BearSSL sometimes dies
   // with a hard Exception(29) instead of a clean ssl=-1000 - that path retries
   // in 5s with a short message (httpGetStart).
-  if(ESP.getMaxFreeBlockSize() < 12000UL){
+  if(ESP.getMaxFreeBlockSize() < 8300UL){
     if(!dSkip) dSkip = now;
     else if(now - dSkip > 150000UL){
       Serial.println("[data] heap wedge 2.5min -> restart");
@@ -2420,7 +2420,7 @@ static void fetchCandlesData(){
   if(!early && !candlesForce && lastTry && now - lastTry < 20000UL) return;   // failed fetch backoff
   // same guard as fetchData, placed BEFORE the flags are consumed so a
   // skipped pass keeps candlesForce and retries in the next loop iteration
-  if(ESP.getMaxFreeBlockSize() < 12000UL){
+  if(ESP.getMaxFreeBlockSize() < 8300UL){
     if(!cSkip) cSkip = now;
     else if(now - cSkip > 150000UL){
       Serial.println("[candle] heap wedge 2.5min -> restart");
@@ -6200,7 +6200,7 @@ static void handleGeocode(){
   // TLS inside a request handler competes with the live browser socket for the
   // largest free block (same trap the fetch comments warn about): refuse when
   // the heap is fragmented instead of failing with a half handshake.
-  if(ESP.getMaxFreeBlockSize() < 12000UL){
+  if(ESP.getMaxFreeBlockSize() < 9500UL){
     server.send(503, "application/json", "{\"error\":\"busy\"}");
     return;
   }
@@ -6269,7 +6269,7 @@ static void handleCitySuggest(){
   if(q.length() > 40) q = q.substring(0, 40);
   // same in-handler TLS pattern as /api/geocode: refuse while the heap is
   // fragmented instead of dying mid-handshake (Exception 29)
-  if(ESP.getMaxFreeBlockSize() < 12000UL){
+  if(ESP.getMaxFreeBlockSize() < 9500UL){
     server.send(503, "application/json", "{\"error\":\"busy\"}");
     return;
   }
@@ -6826,12 +6826,13 @@ void loop(){
     // the first minutes anyway.
     if(now >= 6000UL){
       switch(pollPhase){
-        case 0: fetchCandlesData();  break;   // candles FIRST: the big request
-                                              // gets the freshest heap right
-                                              // after a coin switch, the small
-                                              // price fetch re-runs cheaply
+        // weather FIRST (city auto-detect + current + forecast), then price,
+        // then the heavy candles, then quotes+holidays: strictly one fetch
+        // per slot, so a clean install downloads everything within ~25s
+        // and the user sees weather before crypto, as asked
+        case 0: maybeFetchWx();      break;   // weather / auto city / forecast
         case 1: fetchData(false);    break;   // price
-        case 2: maybeFetchWx();      break;   // weather or forecast, one only
+        case 2: fetchCandlesData();  break;   // candles: the big request
         case 3: maybeFetchQuotes(); maybeFetchHolidays(); break;   // crypto3 markets + calendar holidays
       }
       srvOpen();                              // fetch window closed -> accept again
