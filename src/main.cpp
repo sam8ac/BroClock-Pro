@@ -585,6 +585,18 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
                          const String& url, int& code){
   uint32_t t0 = millis();
   lastTlsTry = t0;
+  if(time(nullptr) < 1600000000UL){
+    // NTP not synced yet (cold install): every handshake fails on the cert
+    // validity window (observed fast "connection failed" loop for minutes
+    // until the fail-wedge reboot).  Wait for the clock instead of burning
+    // attempts - the SDK retries NTP on its own.
+    static uint32_t nw = 0;
+    if(millis() - nw > 30000UL){ nw = millis(); Serial.println("[http] skip: no NTP time"); }
+    mkErr = "no time";
+    coolUntil = millis() + 2000UL;
+    if(!srvSkip) srvOpen();
+    return false;
+  }
   if(!srvSkip) srvClose();                 // no accepts while the engine eats the heap
   // pre-resolve DNS with a hard cap: the lookup inside WiFiClient::connect()
   // has its own (much longer) timeout - a dropped router reply blocked
@@ -5500,8 +5512,9 @@ document.getElementById('go').onclick=function(){
           if(st.wifi && st.wifi.connected){
             clearInterval(iv);
             m.style.color='#f44'; m.style.fontWeight='700';
-            m.textContent=T()[7]+st.wifi.ip;
+            m.innerHTML=T()[7]+st.wifi.ip+'<br><a href="http://'+st.wifi.ip+'">http://'+st.wifi.ip+'</a>';
             go.textContent=T()[11];
+            setTimeout(function(){ try{ window.close(); }catch(e){} },2500);
           }
         }).catch(function(){});
       },2000);
