@@ -5774,7 +5774,7 @@ static void handleStatus(){
   // device screen shows, the web UI never rendered them and every status
   // poll paid String() cost for the dead payload
   out += "\",\"mkok\":";    out += mkOk ? "true" : "false";
-  out += "\",\"wxok\":";    out += wxOk ? "true" : "false";
+  out += ",\"wxok\":";    out += wxOk ? "true" : "false";
   out += ",\"wxerr\":";      jsonEsc(out, errLoc(wxErr));
   out += ",\"q3age\":\""; out += q3At ? String((millis() - q3At) / 1000) +
                                 LG(" с назад", "s ago", "s atrás", "秒前") : String("-");
