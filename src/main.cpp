@@ -4417,6 +4417,10 @@ a{color:#6cf}b{color:#fff}
 .row{display:flex;gap:9px;align-items:stretch}.row>div{flex:1;min-width:0}.row>button{margin-top:0}
 .row input,.row select{box-sizing:border-box;min-width:0;padding-left:6px;padding-right:6px}
 input[type=time]{min-width:0;padding-left:5px;padding-right:5px}
+.pwr{display:flex;gap:7px;align-items:stretch}
+.pwr input{flex:1;min-width:0}
+.eye{flex:0 0 auto;width:40px;padding:0;margin:0;border:1px solid #333;border-radius:6px;background:#0f131a;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
+.eye:active{border-color:#2b6}
 .tl{display:flex;flex-direction:column;gap:2px}
 .cb{display:flex;align-items:center;gap:11px;padding:9px 10px;background:#0f131a;
  border:1px solid #232a35;border-radius:7px;color:#dde;font-size:15px;margin:5px 0;cursor:pointer}
@@ -4778,6 +4782,15 @@ function pick(t,id){
     var q2=document.getElementById('q_syms'); if(q2)q2.value='';
   }
   var b=document.getElementById('r_'+t); if(b)b.innerHTML='';
+}
+var EYE='<svg viewBox="0 0 24 24" width="19" height="19"><path d="M12 5.5C5.7 5.5 2.2 12 2.2 12S5.7 18.5 12 18.5 21.8 12 21.8 12 18.3 5.5 12 5.5z" fill="none" stroke="#8ab" stroke-width="1.8"/><circle cx="12" cy="12" r="3.1" fill="none" stroke="#8ab" stroke-width="1.8"/></svg>';
+var EYEX='<svg viewBox="0 0 24 24" width="19" height="19"><path d="M12 5.5C5.7 5.5 2.2 12 2.2 12S5.7 18.5 12 18.5 21.8 12 21.8 12 18.3 5.5 12 5.5z" fill="none" stroke="#567" stroke-width="1.8"/><circle cx="12" cy="12" r="3.1" fill="none" stroke="#567" stroke-width="1.8"/><line x1="4.5" y1="19.5" x2="19.5" y2="4.5" stroke="#f66" stroke-width="2"/></svg>';
+function pwTog(id,b){
+  var i=document.getElementById(id);
+  var on=i.type=='password';
+  i.type=on?'text':'password';
+  b.innerHTML=on?EYEX:EYE;
+  i.focus();
 }
 function citySuggest(){
   var inp=document.getElementById('cityi'), box=document.getElementById('r_city');
@@ -5455,7 +5468,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <div id=wlist class=sr></div>
 <div id=wform class=sr>
 <label>Имя сети (SSID)</label><input id=wssid autocomplete=off oninput="syncWifiForm()">
-<div id=wpassw><label>Пароль</label><input id=wpass type=password placeholder="пусто — открытая сеть"></div>
+<div id=wpassw><label>Пароль</label><div class=pwr><input id=wpass type=password placeholder="пусто — открытая сеть" autocomplete=off><button type=button class=eye onclick="pwTog('wpass',this)" aria-label="Показать пароль"><svg viewBox="0 0 24 24" width="19" height="19"><path d="M12 5.5C5.7 5.5 2.2 12 2.2 12S5.7 18.5 12 18.5 21.8 12 21.8 12 18.3 5.5 12 5.5z" fill="none" stroke="#8ab" stroke-width="1.8"/><circle cx="12" cy="12" r="3.1" fill="none" stroke="#8ab" stroke-width="1.8"/></svg></button></div></div>
 <button id=wsave onclick="saveWifi()"><span id=wsav1>Сохранить и подключить</span><span id=wsav2 hidden>Подключено</span></button>
 <button class=sm onclick="forgetWifi()">Забыть сохранённую сеть</button>
 <div class=dim>Сохранённая сеть подключается автоматически при старте.</div>
@@ -5484,6 +5497,10 @@ static const char SETUP_PAGE[] PROGMEM = R"HTML(
 h1{font-size:19px;margin:0 0 4px;color:#7fa}
 label{display:block;color:#8ab;font-size:13px;margin:11px 0 4px}
 input{width:100%;padding:10px;border-radius:6px;border:1px solid #333;background:#0f131a;color:#eee;font-size:15px;box-sizing:border-box}
+.pwr{display:flex;gap:7px;align-items:stretch}
+.pwr input{flex:1;min-width:0}
+.eye{flex:0 0 auto;width:40px;padding:0;margin:0;border:1px solid #333;border-radius:6px;background:#0f131a;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
+.eye:active{border-color:#2b6}
 button{width:100%;padding:11px;border:0;border-radius:6px;background:#2b6;color:#042;font-weight:700;font-size:15px;margin-top:14px}
 button:disabled{opacity:.55;cursor:default}
 .qr{display:flex;gap:9px;align-items:center;padding:9px 10px;background:#0f131a;border:1px solid #232a35;border-radius:6px;margin-top:5px;cursor:pointer;font-size:14px}
@@ -5512,7 +5529,7 @@ button:disabled{opacity:.55;cursor:default}
 <div id=wl></div>
 <div id=form>
 <label id=lssid>Network name (SSID)</label><input id=ssid autocomplete=off>
-<label id=lpass>Password</label><input id=pass type=password>
+<label id=lpass>Password</label><div class=pwr><input id=pass type=password autocomplete=off><button type=button class=eye onclick="pwTog('pass',this)" aria-label="Show password"><svg viewBox="0 0 24 24" width="19" height="19"><path d="M12 5.5C5.7 5.5 2.2 12 2.2 12S5.7 18.5 12 18.5 21.8 12 21.8 12 18.3 5.5 12 5.5z" fill="none" stroke="#8ab" stroke-width="1.8"/><circle cx="12" cy="12" r="3.1" fill="none" stroke="#8ab" stroke-width="1.8"/></svg></button></div>
 <button id=go>Connect</button>
 <div id=msg></div>
 </div>
@@ -5526,6 +5543,15 @@ var cur=null;
 try{ cur=localStorage.getItem('sdp-lang2'); }catch(e){}
 if(!L[cur]) cur='en';                       // default: English (key bumped so old ru is ignored)
 function T(){ return L[cur]; }
+var EYE='<svg viewBox="0 0 24 24" width="19" height="19"><path d="M12 5.5C5.7 5.5 2.2 12 2.2 12S5.7 18.5 12 18.5 21.8 12 21.8 12 18.3 5.5 12 5.5z" fill="none" stroke="#8ab" stroke-width="1.8"/><circle cx="12" cy="12" r="3.1" fill="none" stroke="#8ab" stroke-width="1.8"/></svg>';
+var EYEX='<svg viewBox="0 0 24 24" width="19" height="19"><path d="M12 5.5C5.7 5.5 2.2 12 2.2 12S5.7 18.5 12 18.5 21.8 12 21.8 12 18.3 5.5 12 5.5z" fill="none" stroke="#567" stroke-width="1.8"/><circle cx="12" cy="12" r="3.1" fill="none" stroke="#567" stroke-width="1.8"/><line x1="4.5" y1="19.5" x2="19.5" y2="4.5" stroke="#f66" stroke-width="2"/></svg>';
+function pwTog(id,b){
+  var i=document.getElementById(id);
+  var on=i.type=='password';
+  i.type=on?'text':'password';
+  b.innerHTML=on?EYEX:EYE;
+  i.focus();
+}
 function applyLang(){
   var t=T();
   document.title='BroClock PRO - '+t[0];
