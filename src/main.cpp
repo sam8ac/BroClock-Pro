@@ -598,6 +598,8 @@ static void srvOpen(){ if(srvDown){ server.begin(); srvDown = false; } }
 // died as "dns timeout" or shredded the heap into minutes of "heap low".
 static uint32_t fetchHoldUntil = 0;
 static bool fetchHold(){
+  // a phone on the setup page: no TLS while the browser needs the server
+  if((WiFi.getMode() & WIFI_AP) && WiFi.softAPgetStationNum() > 0) return true;
   if(!fetchHoldUntil) return false;
   if(millis() >= fetchHoldUntil){ fetchHoldUntil = 0; return false; }
   return true;
@@ -6091,6 +6093,7 @@ static void handleRefresh(){
 
 // ---------------------------------------------------------------- wifi management
 static uint32_t wifiTryMs = 0;    // last connect attempt
+static uint32_t setupDoneAt = 0;   // setup page saved: AP can drop early
 static uint32_t wifiApOffAt = 0;  // drop the fallback AP this long after STA is up
 
 static bool     scanRunning = false;
@@ -6180,6 +6183,7 @@ static void handleWifi(){
   WiFi.setAutoReconnect(true);
   wifiTryMs = millis();
   wifiApOffAt = 0;
+  setupDoneAt = millis();   // phone is on the setup page now; bound the AP
   if(WiFi.getMode() == WIFI_AP) WiFi.mode(WIFI_AP_STA);   // keep AP alive while connecting
   WiFi.begin(cfg.wifiSsid.c_str(), cfg.wifiPass.c_str());
 }
@@ -6834,6 +6838,14 @@ void loop(){
       wasStaUp = true;
       fetchHoldUntil = millis() + 12000UL;
       Serial.println("[net] sta up -> quiet 12s");
+    }
+    // setup flow finished: drop the AP 25s after the save even if the
+    // phone still sits on it - the fetchers wait for it (fetchHold)
+    if(setupDoneAt && now - setupDoneAt > 25000UL){
+      WiFi.softAPdisconnect(true);
+      WiFi.mode(WIFI_STA);
+      setupDoneAt = 0;
+      Serial.println("[wifi] AP off after setup page");
     }
     portalStop();
     if(WiFi.getMode() == WIFI_AP_STA){
