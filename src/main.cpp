@@ -5611,7 +5611,7 @@ document.getElementById('go').onclick=function(){
           if(st.wifi && st.wifi.connected){
             clearInterval(iv);
             m.style.color='#f44'; m.style.fontWeight='700';
-            m.innerHTML=T()[7]+st.wifi.ip+'<br><a href="http://'+st.wifi.ip+'">http://'+st.wifi.ip+'</a>';
+            m.innerHTML=T()[7]+'<a href="http://'+st.wifi.ip+'" style="color:#6cf;text-decoration:underline">'+st.wifi.ip+'</a>';
             go.textContent=T()[11];
             setTimeout(function(){ try{ window.close(); }catch(e){} },2500);
           }
