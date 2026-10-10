@@ -2298,8 +2298,13 @@ static void maybeFetchWx(){
   // established current-weather to seed its baseline).  This keeps OWM usage low.
   bool haveCity = cfg.city.length() > 0;   // no city picked: nothing to fetch
   if(!haveCity && wxErr != "no city") wxErr = "no city";
-  bool wantW = haveCity && (wxOk ? (t - wxAt >= 600000UL) : true) && t - wxTry >= 60000UL;
-  bool wantF = haveCity && (fcn > 0 ? (t - fcAt >= 1800000UL) : true) && t - fcTry >= 60000UL;
+  // wxTry/fcTry==0 means NEVER tried: fetch now (the 12s hold already
+  // spaces it from boot) - the old `t - 0 >= 60000` delayed the first
+  // weather pull to uptime 60s on any cache-less boot
+  bool wantW = haveCity && (wxOk ? (t - wxAt >= 600000UL) : true) &&
+              (!wxTry || t - wxTry >= 60000UL);
+  bool wantF = haveCity && (fcn > 0 ? (t - fcAt >= 1800000UL) : true) &&
+              (!fcTry || t - fcTry >= 60000UL);
   if(wantW){
     if(ESP.getMaxFreeBlockSize() < 8300UL) return;   // TLS below ~8.3k dies hard
     wxTry = t;
