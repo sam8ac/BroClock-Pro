@@ -383,6 +383,13 @@ static String mkErrReal;       // last REAL market-path failure (price/candles/q
                                // paint the crypto line red for their errors
 
 static uint32_t bootMs = 0;
+
+// TLS spacing: back-to-back sessions shred the heap (4s), but the first
+// 90s after boot have the healthiest heap of the whole uptime and every
+// panel is empty on a clean install - 2s there fills all of them ~8s sooner
+static uint32_t coolGap(){
+  return (millis() - bootMs < 90000UL) ? 2000UL : 4000UL;
+}
 static uint32_t themeSince = 0;
 
 // persistent cache (LittleFS): the last good payload survives reboots, so the
@@ -1247,7 +1254,7 @@ static void maybeFetchQuotes(){
   bool qok = fetchQuotes();
   if(qok){ mkErrReal = ""; mark(RM_PRICE); }
   else if(!httpSkip) mkErrReal = mkErr;
-  coolUntil = millis() + 4000UL;   // space the next fetcher even on failure
+  coolUntil = millis() + coolGap();   // space the next fetcher even on failure
   lastPhase = "q3"; lastPhaseMs = millis() - t;
 }
 
@@ -2252,7 +2259,7 @@ static void maybeFetchHolidays(){
     coolUntil = millis() + 3000UL;   // let the heap rebound before the nager TLS
   }
   if(fetchHolidays(cc, yr)) mark(RM_PRICE | RM_CHART);   // repaint the calendar
-  coolUntil = millis() + 4000UL;      // space the next fetcher
+  coolUntil = millis() + coolGap();      // space the next fetcher
 }
 
 static bool cacheLoadAll(){
@@ -2451,7 +2458,7 @@ static void fetchData(bool force){
     failSince = 0;
     mkErrReal = "";
     priceCacheStore();
-    coolUntil = millis() + 4000UL;   // space the next TLS: back-to-back fetches shred the heap
+    coolUntil = millis() + coolGap();   // space the next TLS: back-to-back fetches shred the heap
     mark(RM_HEAD | RM_PRICE | RM_FOOT);
     Serial.printf("[data] price=%.4f chg=%.2f\n", mkPrice, mkChg);
   } else {
@@ -2514,7 +2521,7 @@ static void fetchCandlesData(){
   if(ok){
     mkErrReal = "";
     chartCacheStore();
-    coolUntil = millis() + 4000UL;   // space the next TLS (same as fetchData)
+    coolUntil = millis() + coolGap();   // space the next TLS (same as fetchData)
     mark(RM_CHART);
     Serial.printf("[candle] cd=%d ln=%d\n", cdN, lnN);
   } else {
@@ -3228,7 +3235,20 @@ static void clDate(){
   }
 }
 
-static void clChart(){
+static void clChart(bool force){
+  // the temp/humidity line + weekday/date change rarely, but minute marks
+  // (and every second pre-NTP) used to clear+repaint the whole band =
+  // a periodic flash.  Skip when nothing here changed.
+  static uint32_t lastClKey = 0xFFFFFFFFUL;
+  struct tm ti;
+  bool tok = timeOk(ti);
+  uint32_t k = (wxShowOk() ? 1 : 0) ^ (uint32_t)(int)wxTemp ^
+               ((uint32_t)(int)wxHum << 8) ^ (uint32_t)langIdx() ^
+               (uint32_t)wxErr.length();
+  if(tok) k = k * 31 + (uint32_t)ti.tm_wday + ((uint32_t)ti.tm_mday << 4)
+                  + ((uint32_t)ti.tm_mon << 12);
+  if(!force && k == lastClKey) return;
+  lastClKey = k;
   bgFillRect(0, 131, 240, 81);
   clAnim(0);                    // corner first, text is painted on top of it
 
@@ -3265,7 +3285,7 @@ static void drawClassic(uint8_t m){
   if(m & RM_FOOT)  bgFillRect(0, 213, 240, 27);   // before clChart: it owns the corner
   if(m & RM_HEAD)  clHead();
   if(m & RM_PRICE) clTime();
-  if(m & RM_CHART) clChart();
+  if(m & RM_CHART) clChart((m & RM_FULL) != 0);
   else if(m & RM_FOOT){ clDate(); clAnim(213); }   // footer fill wipes date bottom
 }
 
@@ -3706,12 +3726,17 @@ static void drawFlip(uint8_t m){
   if(m & RM_PRICE){
     struct tm ti;
     bool ok = timeOk(ti);
+    static bool notOkPainted = false;
     if(!ok){
-      if(flipActive >= 0 || flipQh < flipQt) flipReset();
-      bgFillRect(0, FLIP_Y, 240, FLIP_H);
-      for(int i = 0; i < FLIP_N; i++)
-        flipPanel(FLIP_X[i], FLIP_Y, FLIP_W, FLIP_H, "--");
+      if(!notOkPainted){
+        notOkPainted = true;
+        if(flipActive >= 0 || flipQh < flipQt) flipReset();
+        bgFillRect(0, FLIP_Y, 240, FLIP_H);
+        for(int i = 0; i < FLIP_N; i++)
+          flipPanel(FLIP_X[i], FLIP_Y, FLIP_W, FLIP_H, "--");
+      }
     } else {
+      notOkPainted = false;
       String s = (is12() ? two(hour12(ti.tm_hour)) : two(ti.tm_hour)) + two(ti.tm_min);
       for(int i = 0; i < FLIP_N; i++){
         uint8_t d = (uint8_t)(s[i] - '0');
@@ -3727,10 +3752,18 @@ static void drawFlip(uint8_t m){
     }
   }
   if(m & RM_CHART){
-    bgFillRect(0, 152, 240, 54);
+    // date row: repaints identically on every minute mark - guard it
     struct tm ti;
+    bool tokC = timeOk(ti);
+    static uint32_t lastFkKey = 0xFFFFFFFFUL;
+    uint32_t k = (tokC ? 1 : 0) ^ (uint32_t)langIdx();
+    if(tokC) k = k * 31 + (uint32_t)ti.tm_wday + ((uint32_t)ti.tm_mday << 4)
+                    + ((uint32_t)ti.tm_mon << 12) + ((uint32_t)ti.tm_hour << 20);
+    if((m & RM_FULL) || k != lastFkKey){
+    lastFkKey = k;
+    bgFillRect(0, 152, 240, 54);
     tft.setTextColor(C_GREY, C_BG);
-    if(timeOk(ti)){
+    if(tokC){
       String wd, dt;
       switch(langIdx()){
         case 1: { static const char* WD[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
@@ -3769,6 +3802,7 @@ static void drawFlip(uint8_t m){
           tft.setTextDatum(MC_DATUM);
         }
       }
+    }
     }
   }
   if(m & RM_FOOT){
@@ -6965,8 +6999,10 @@ void loop(){
   if(WiFi.isConnected()){
     if(!wasStaUp){
       wasStaUp = true;
-      fetchHoldUntil = millis() + 12000UL;
-      Serial.println("[net] sta up -> quiet 12s");
+      // clean install / cache-less join: 8s is enough for DNS + lwip to
+      // settle and buys 4s off the time-to-first-data
+      fetchHoldUntil = millis() + ((!mkOk && !wxOk) ? 8000UL : 12000UL);
+      Serial.println("[net] sta up -> quiet window");
     }
     // setup flow finished: drop the AP 25s after the save even if the
     // phone still sits on it - the fetchers wait for it (fetchHold)
@@ -7057,8 +7093,8 @@ void loop(){
         // and the user sees weather before crypto, as asked
         case 0: maybeFetchWx();      break;   // weather / auto city / forecast
         case 1: fetchData(false);    break;   // price
-        case 2: fetchCandlesData();  break;   // candles: the big request
-        case 3: maybeFetchQuotes(); maybeFetchHolidays(); break;   // crypto3 markets + calendar holidays
+        case 2: maybeFetchQuotes(); maybeFetchHolidays(); break;   // light first: quotes + holidays
+        case 3: fetchCandlesData();  break;   // candles last: the big request
       }
       if(dirty) render();
       srvOpen();                              // fetch window closed -> accept again
