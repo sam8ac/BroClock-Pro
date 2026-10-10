@@ -2310,7 +2310,7 @@ static void maybeFetchWx(){
     wxTry = t;
     if(fetchWeather()) mark(RM_HEAD | RM_PRICE | RM_CHART | RM_FOOT);
     else { mark(RM_PRICE | RM_CHART | RM_FOOT); oomFailCheck("wx");
-           wxTry = millis() - (httpSkip ? 55000UL : 45000UL); }  // 5s if deferred, else 15s
+           wxTry = millis() - (httpSkip ? 35000UL : 45000UL); }  // 25s if deferred, else 15s
     lastPhase = "wx"; lastPhaseMs = millis() - t;
   } else if(wantF && wxOk){   // forecast is a large payload: only when needed
     if(ESP.getMaxFreeBlockSize() < 8300UL) return;
@@ -3552,6 +3552,22 @@ static void drawCrypto3(uint8_t m){
     tft.drawString(ip, x + w / 2, 19, 2);
   }
   if(m & RM_PRICE){
+    // identical repaints (minute mark with unchanged quotes) flash the
+    // whole lower panel - repaint only when data or error state changed
+    static uint32_t lastQKey = 0xFFFFFFFFUL;
+    uint32_t k = (q3Ok ? 1 : 0) ^ (uint32_t)mkErrReal.length();
+    for(int i = 0; i < NQ; i++){
+      k = k * 31 + (q3[i].ok ? 7 : 3);
+      if(q3[i].ok){
+        union { float f; uint32_t u; } pu, cu;
+        pu.f = q3[i].price; cu.f = q3[i].chg;
+        k ^= pu.u + (cu.u << 1);
+      }
+      k ^= (uint32_t)q3[i].id.length() << (i + 1);
+    }
+    bool qSame = (!(m & RM_FULL) && k == lastQKey);
+    lastQKey = k;
+    if(!qSame){
     bgFillRect(0, 38, 240, 202);
     String want[NQ];
     int nw = 0;
@@ -3581,6 +3597,7 @@ static void drawCrypto3(uint8_t m){
       tft.setTextColor(q3[i].chg >= 0 ? C_UP : C_DOWN, C_BG);
       tft.setTextDatum(TR_DATUM);
       tft.drawString(fmtPct(q3[i].chg), 230, y + 36, 2);
+    }
     }
   }
   if(m & RM_FOOT) bgFillRect(0, 236, 240, 4);
@@ -3979,6 +3996,19 @@ static String signedT(float v){
 // ---------------------------------------------------------------- weather theme
 static void drawWeather(uint8_t m){
   if(m & RM_FULL) m |= RM_HEAD | RM_PRICE | RM_CHART | RM_FOOT;
+  // minute marks repaint identical content = a full-region flash (the
+  // periodic jerk on this theme).  Same guard the calendar theme has:
+  // skip when nothing this panel draws has changed.
+  static uint32_t lastWxKey = 0xFFFFFFFFUL;
+  uint32_t k = (uint32_t)wxCode ^ (uint32_t)(int)(wxTemp * 10) ^
+               ((uint32_t)(int)wxHum << 8) ^ (uint32_t)(int)wxWind ^
+               (uint32_t)(int)wxFeels ^ (uint32_t)fcn ^ (wxOk ? 1 : 0) ^
+               (uint32_t)langIdx() ^ (uint32_t)wxCity.length();
+  if(fcn > 0)
+    k = k * 31 + (uint32_t)(int)(fcd[0].hi * 10) + ((uint32_t)(int)(fcd[0].lo * 10) << 8);
+  if(wxErr.length()) k ^= (uint32_t)wxErr.length() << 20;
+  if(!(m & RM_FULL) && k == lastWxKey) return;
+  lastWxKey = k;
   if(m & RM_HEAD){
     bgFillRect(0, 0, 240, 54);
     // top row: night low left-aligned, day high right-aligned (IP removed)
@@ -4061,6 +4091,16 @@ static void drawWeather(uint8_t m){
 // ---------------------------------------------------------------- forecast theme
 static void drawForecast(uint8_t m){
   if(m & RM_FULL) m |= RM_HEAD | RM_PRICE | RM_CHART | RM_FOOT;
+  // same identical-repaint guard as drawWeather
+  static uint32_t lastFcKey = 0xFFFFFFFFUL;
+  uint32_t k = (uint32_t)fcn ^ (wxOk ? 1 : 0) ^ (uint32_t)langIdx() ^
+               (uint32_t)wxCity.length();
+  for(int i = 0; i < fcn && i < 5; i++)
+    k = k * 31 + (uint32_t)(int)(fcd[i].hi * 10) + ((uint32_t)(int)(fcd[i].lo * 10) << 8)
+         + (uint32_t)fcd[i].code + (uint32_t)fcd[i].pop;
+  if(wxErr.length()) k ^= (uint32_t)wxErr.length() << 12;
+  if(!(m & RM_FULL) && k == lastFcKey) return;
+  lastFcKey = k;
   if(m & RM_HEAD){
     bgFillRect(0, 0, 240, 54);
     txtR(232, 6, LG("5 дней", "5 days", "5 días", "5 天"), C_DIM, 16);
@@ -6842,8 +6882,9 @@ void loop(){
   static uint32_t ntpKick = 0;
   if(now - lastHb > 5000UL){
     lastHb = now;
-    Serial.printf("[hb] up=%lus heap=%u wifi=%d theme=%s err=%s\n",
+    Serial.printf("[hb] up=%lus heap=%u mfb=%u wifi=%d theme=%s err=%s\n",
                   (unsigned long)((now - bootMs) / 1000), ESP.getFreeHeap(),
+                  (unsigned)ESP.getMaxFreeBlockSize(),
                   (int)WiFi.isConnected(), cfg.theme.c_str(), mkErr.c_str());
     // NTP sometimes loses the race with the first TLS sessions after boot;
     // re-issue configTime periodically until the clock is valid
@@ -7005,6 +7046,10 @@ void loop(){
     // pvPortZalloc(212)+ets_memcpy with no NULL check).  The caches cover
     // the first minutes anyway.
     if(now >= 6000UL){
+      // a TLS GET blocks loop() for its full duration on the 8266 - paint
+      // pending marks before entering it and again right after, so the
+      // screen never sits on stale content through the freeze
+      if(dirty) render();
       switch(pollPhase){
         // weather FIRST (city auto-detect + current + forecast), then price,
         // then the heavy candles, then quotes+holidays: strictly one fetch
@@ -7015,6 +7060,7 @@ void loop(){
         case 2: fetchCandlesData();  break;   // candles: the big request
         case 3: maybeFetchQuotes(); maybeFetchHolidays(); break;   // crypto3 markets + calendar holidays
       }
+      if(dirty) render();
       srvOpen();                              // fetch window closed -> accept again
       pollPhase = (pollPhase + 1) & 3;
     }
