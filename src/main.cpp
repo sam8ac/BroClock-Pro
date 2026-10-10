@@ -987,8 +987,8 @@ static bool httpJson(const String& url, JsonDocument& doc, const char* filter = 
   // 7550 floor, rebounding to 7968 within ~200ms) - a whole chain
   // (weather -> geocode -> prefix) would fall through on such a miss, so
   // give the gate case one short retry before giving up
-  if(mkErr == "heap low"){
-    delay(300);
+  if(mkErr == "heap low" || mkErr.startsWith("connection failed")){
+    delay(300);                  // reshuffled heap: the retry usually connects
     if(httpJsonOnce(url, doc, filter)) return true;
   }
   if(!mkErr.startsWith("rate limited")) delay(200);
@@ -2289,7 +2289,8 @@ static void maybeFetchWx(){
     if(ESP.getMaxFreeBlockSize() < 8300UL) return;   // TLS below ~8.3k dies hard
     wxTry = t;
     if(fetchWeather()) mark(RM_HEAD | RM_PRICE | RM_CHART | RM_FOOT);
-    else { mark(RM_PRICE | RM_CHART | RM_FOOT); oomFailCheck("wx"); }
+    else { mark(RM_PRICE | RM_CHART | RM_FOOT); oomFailCheck("wx");
+           wxTry = millis() - 45000UL; }   // retry in 15s, not at the 60s cadence
     lastPhase = "wx"; lastPhaseMs = millis() - t;
   } else if(wantF && wxOk){   // forecast is a large payload: only when needed
     if(ESP.getMaxFreeBlockSize() < 8300UL) return;
