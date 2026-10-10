@@ -6134,7 +6134,7 @@ static void handleRefresh(){
   candlesForce = true;
   coolUntil = millis() + 2000UL;   // let any in-flight fetch finish first
   pokeWx();
-  if(cfg.theme == "crypto3"){ q3At = 0; q3Try = millis() - 21000UL; }
+  if(cfg.theme == "crypto3"){ q3At = millis() - (uint32_t)cfg.refresh * 1000UL - 1000UL; q3Try = millis() - 21000UL; }
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
