@@ -59,7 +59,10 @@ def main():
     ]
     total = 0
     for name in ("PAGE", "SETUP_PAGE"):
-        html = extract(src, name).encode("utf-8")
+        # the compiler normalizes CRLF -> LF in source lines before tokenizing
+        # (including raw string literals) - match it, or the gz copy would
+        # carry the CRs the compiled PAGE does not have
+        html = extract(src, name).replace("\r\n", "\n").encode("utf-8")
         gz = gzip.compress(html, compresslevel=9, mtime=0)
         total += len(gz)
         parts.append("// %s: %d -> %d bytes" % (name, len(html), len(gz)))
