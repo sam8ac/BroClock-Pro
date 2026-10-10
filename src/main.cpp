@@ -376,6 +376,8 @@ static uint32_t lastPhaseMs = 0;
 static int  cdLen = 0;                // OHLC payload diagnostics
 static bool cdChunk = false;
 static String mkErr;
+static bool  httpSkip = false; // last attempt was DEFERRED (heap gate / NTP wait),
+                               // not a real failure: callers keep the old state
 
 static uint32_t bootMs = 0;
 static uint32_t themeSince = 0;
@@ -610,6 +612,7 @@ static bool fetchHold(){
 static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
                          const String& url, int& code){
   uint32_t t0 = millis();
+  httpSkip = false;
   lastTlsTry = t0;
   if(time(nullptr) < 1600000000UL){
     // NTP not synced yet (cold install): every handshake fails on the cert
@@ -618,6 +621,7 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
     // attempts - the SDK retries NTP on its own.
     static uint32_t nw = 0;
     if(millis() - nw > 30000UL){ nw = millis(); Serial.println("[http] skip: no NTP time"); }
+    httpSkip = true;
     mkErr = "no time";
     coolUntil = millis() + 2000UL;
     if(!srvSkip) srvOpen();
@@ -691,6 +695,7 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
   {
     uint32_t f0 = ESP.getFreeHeap(), m0 = ESP.getMaxFreeBlockSize();
     if(f0 < 9000UL || m0 < 7550UL){
+      httpSkip = true;
       mkErr = "heap low";
       coolUntil = millis() + 2500UL;
       lastTlsTry = 0;                       // not a real attempt: let the breaker fire
@@ -1371,7 +1376,8 @@ static bool fetchWeatherOwm(){
     String url = owmBase() + "/weather?q=" + urlencode(cfg.city) +
                  "&units=metric&appid=" + OWM_KEY + langQ();
     if(!httpJson(url, d, WX_CUR_FILTER)){
-      wxErr = mkErr; wxOk = false; return false;
+      if(!httpSkip){ wxErr = mkErr; wxOk = false; }   // deferred: keep old state
+      return false;
     }
     wxCity = String((const char*)(d["name"] | cfg.city.c_str()));
     JsonObject cur = d["main"].as<JsonObject>();
@@ -1524,7 +1530,7 @@ static bool omGeocode(){
 // ---- Open-Meteo source (no API key; accepts the city as typed - Latin OR
 // Cyrillic - and answers with a localisation, so the display gets "Витебск")
 static bool fetchWeatherOmeto(){
-  if(!omGeocode()){ wxErr = "geocode"; wxOk = false; return false; }
+  if(!omGeocode()){ if(!httpSkip){ wxErr = "geocode"; wxOk = false; } return false; }
   JsonDocument d;
   String url = String("https://api.open-meteo.com/v1/forecast?latitude=") +
                String(omGeoLat, 4) + "&longitude=" + String(omGeoLon, 4) +
@@ -1533,7 +1539,10 @@ static bool fetchWeatherOmeto(){
                "&daily=temperature_2m_max,temperature_2m_min&timezone=auto"
                "&forecast_days=1";
   static const char* F = "{\"current\":true,\"daily\":true}";
-  if(!httpJson(url, d, F)){ wxErr = mkErr; wxOk = false; return false; }
+  if(!httpJson(url, d, F)){
+    if(!httpSkip){ wxErr = mkErr; wxOk = false; }
+    return false;
+  }
   JsonObject cur = d["current"].as<JsonObject>();
   if(cur.isNull()){ wxErr = "empty"; wxOk = false; return false; }
   wxCity = omGeoName;
@@ -2292,7 +2301,7 @@ static void maybeFetchWx(){
     wxTry = t;
     if(fetchWeather()) mark(RM_HEAD | RM_PRICE | RM_CHART | RM_FOOT);
     else { mark(RM_PRICE | RM_CHART | RM_FOOT); oomFailCheck("wx");
-           wxTry = millis() - 45000UL; }   // retry in 15s, not at the 60s cadence
+           wxTry = millis() - (httpSkip ? 55000UL : 45000UL); }  // 5s if deferred, else 15s
     lastPhase = "wx"; lastPhaseMs = millis() - t;
   } else if(wantF && wxOk){   // forecast is a large payload: only when needed
     if(ESP.getMaxFreeBlockSize() < 8300UL) return;
@@ -2439,7 +2448,8 @@ static void fetchData(bool force){
     }
     mark(RM_PRICE | RM_FOOT);
     if(mkErr.startsWith("no memory") ||
-       mkErr.startsWith("connection failed")) lastFetchTry = millis() - 15000UL;  // retry in 5s
+       mkErr.startsWith("connection failed") ||
+       mkErr == "heap low") lastFetchTry = millis() - 15000UL;  // retry in 5s
     Serial.printf("[data] price FAIL %s\n", mkErr.c_str());
   }
 }
@@ -4501,8 +4511,10 @@ var T={
 'Палитра':['Palette','Paleta','调色板'],'Пароль':['Password','Contraseña','密码'],
 'Погода':['Weather','Clima','天气'],
 'Погода: ошибка обновления':['Weather: update failed','Clima: error de actualización','天气：更新失败'],
+ 'Погода: данные загружаются…':['Weather: loading…','Clima: cargando…','天气：加载中…'],
 'Погода обновлена':['Weather updated','Clima actualizado','天气已更新'],
 'Котировки: ошибка обновления':['Market data: error','Datos de mercado: error','行情：更新失败'],
+ 'Котировки: данные загружаются…':['Market data: loading…','Datos de mercado: cargando…','行情：加载中…'],
 'Котировки обновлены':['Market data updated','Datos de mercado actualizados','行情已更新'],
 'Погода обновляется автоматически каждые 10 минут.':['Weather refreshes automatically every 10 minutes.','El clima se actualiza automáticamente cada 10 minutos.','天气每10分钟自动刷新。'],
 'Подключено':['Connected','Conectado','已连接'],
@@ -4798,16 +4810,20 @@ function renderFetchState(s){
   var wm=document.getElementById('wxmsg');
   if(wm){
     var we=s.wxerr||'';
+    var wwait=(!we&&(!s.wxok||!s.wxage||s.wxage=='-'));
     wm.textContent=(we?ttr('Погода: ошибка обновления')+' — '+we
-                            :ttr('Погода обновлена')+' · '+(s.wxage||''));
-    wm.style.color=we?'#f66':'#7fa';
+                     :wwait?ttr('Погода: данные загружаются…')
+                           :ttr('Погода обновлена')+' · '+(s.wxage||''));
+    wm.style.color=we?'#f66':(wwait?'#888':'#7fa');
   }
   var mm=document.getElementById('mkmsg');
   if(mm){
     var me=s.err||'';
+    var mwait=(!me&&s.mkok===false);
     mm.textContent=(me?ttr('Котировки: ошибка обновления')+' — '+me
-                            :ttr('Котировки обновлены')+' · '+(s.age||''));
-    mm.style.color=me?'#f66':'#7fa';
+                     :mwait?ttr('Котировки: данные загружаются…')
+                           :ttr('Котировки обновлены')+' · '+(s.age||''));
+    mm.style.color=me?'#f66':(mwait?'#888':'#7fa');
   }
 }
 function applySettings(s){
@@ -5757,6 +5773,7 @@ static void handleStatus(){
   // q3/price/chg deliberately NOT serialized: they only mirror what the
   // device screen shows, the web UI never rendered them and every status
   // poll paid String() cost for the dead payload
+  out += "\",\"mkok\":";    out += mkOk ? "true" : "false";
   out += "\",\"wxok\":";    out += wxOk ? "true" : "false";
   out += ",\"wxerr\":";      jsonEsc(out, errLoc(wxErr));
   out += ",\"q3age\":\""; out += q3At ? String((millis() - q3At) / 1000) +
@@ -5861,7 +5878,10 @@ static void handleStatus(){
   out += "\",\"age\":\""; out += mkOk ? String((millis() - mkAt) / 1000) +
                                 LG(" с назад", "s ago", "s atrás", "秒前")
                                      : LG("нет данных", "no data", "sin datos", "无数据");
-  out += "\",\"err\":"; jsonEsc(out, errLoc(mkErr));
+  // deferred attempt or fresh price: a red error would be a lie
+  out += "\",\"err\":";
+  jsonEsc(out, (httpSkip || (mkOk && millis() - mkAt <= (uint32_t)cfg.refresh * 2000UL))
+                ? String("") : errLoc(mkErr));
   out += '}';
   server.send(200, "application/json", out);
 }
