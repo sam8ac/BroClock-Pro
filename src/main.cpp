@@ -4572,7 +4572,8 @@ var T={
 'Глубокий синий':['Deep blue','Azul profundo','深蓝色'],
 'Custom — ваш цвет; клик открывает палитру':['Custom — your colour; click to open the palette','Personalizado — tu color; haz clic para abrir la paleta','自定义 — 你的颜色；点击打开调色板'],
 'Палитра — живой предпросмотр цвета':['Palette — live colour preview','Paleta — vista previa en vivo del color','调色板 — 实时颜色预览'],
-'пусто — открытая сеть':['empty — open network','vacía — red abierta','空白 — 开放网络']
+'пусто — открытая сеть':['empty — open network','vacía — red abierta','空白 — 开放网络'],
+ 'пусто — оставить текущий':['empty — keep current','vacía — mantener actual','空白 — 保留当前']
 };
 var tmap=new WeakMap();
 /* ru markup is the source of truth: pick the translated slice for `core` */
@@ -4855,7 +4856,8 @@ function renderFetchState(s){
     wm.textContent=(we?ttr('Погода: ошибка обновления')+' — '+we
                      :wwait?ttr('Погода: данные загружаются…')
                            :ttr('Погода обновлена')+' · '+(s.wxage||''));
-    wm.style.color=we?'#f66':(wwait?'#888':'#7fa');
+    wm.style.color=we?'#f66':(wwait?'#2b6':'#7fa');
+    wm.style.fontWeight=wwait?'bold':'normal';
   }
   var mm=document.getElementById('mkmsg');
   if(mm){
@@ -4864,7 +4866,8 @@ function renderFetchState(s){
     mm.textContent=(me?ttr('Котировки: ошибка обновления')+' — '+me
                      :mwait?ttr('Котировки: данные загружаются…')
                            :ttr('Котировки обновлены')+' · '+(s.age||''));
-    mm.style.color=me?'#f66':(mwait?'#888':'#7fa');
+    mm.style.color=me?'#f66':(mwait?'#2b6':'#7fa');
+    mm.style.fontWeight=mwait?'bold':'normal';
   }
 }
 function applySettings(s){
@@ -5111,10 +5114,13 @@ function syncWifiForm(){
   var e=document.getElementById('wssid'); if(!e)return;
   var same=!!(wifiCur&&e.value.trim()===wifiCur);
   e.readOnly=same;
-  var pw=document.getElementById('wpassw'); if(pw)pw.hidden=same;
-  var b=document.getElementById('wsave'); if(b)b.disabled=same;
+  var pw=document.getElementById('wpassw'); if(pw)pw.hidden=false;
+  var pe=document.getElementById('wpass');
+  var typed=!!(pe&&pe.value);
+  if(pe)pe.placeholder=ttr(same?'пусто — оставить текущий':'пусто — открытая сеть');
+  var b=document.getElementById('wsave'); if(b)b.disabled=same&&!typed;
   var s1=document.getElementById('wsav1'), s2=document.getElementById('wsav2');
-  if(s1)s1.hidden=same; if(s2)s2.hidden=!same;
+  if(s1)s1.hidden=same&&!typed; if(s2)s2.hidden=!(same&&!typed);
 }
 function pickWifi(el){
   var f=document.getElementById('wform'); if(!f)return;
@@ -5468,7 +5474,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <div id=wlist class=sr></div>
 <div id=wform class=sr>
 <label>Имя сети (SSID)</label><input id=wssid autocomplete=off oninput="syncWifiForm()">
-<div id=wpassw><label>Пароль</label><div class=pwr><input id=wpass type=password placeholder="пусто — открытая сеть" autocomplete=off><button type=button class=eye onclick="pwTog('wpass',this)" aria-label="Показать пароль"><svg viewBox="0 0 24 24" width="19" height="19"><path d="M12 5.5C5.7 5.5 2.2 12 2.2 12S5.7 18.5 12 18.5 21.8 12 21.8 12 18.3 5.5 12 5.5z" fill="none" stroke="#8ab" stroke-width="1.8"/><circle cx="12" cy="12" r="3.1" fill="none" stroke="#8ab" stroke-width="1.8"/></svg></button></div></div>
+<div id=wpassw><label>Пароль</label><div class=pwr><input id=wpass type=password placeholder="пусто — открытая сеть" autocomplete=off oninput="syncWifiForm()"><button type=button class=eye onclick="pwTog('wpass',this)" aria-label="Показать пароль"><svg viewBox="0 0 24 24" width="19" height="19"><path d="M12 5.5C5.7 5.5 2.2 12 2.2 12S5.7 18.5 12 18.5 21.8 12 21.8 12 18.3 5.5 12 5.5z" fill="none" stroke="#8ab" stroke-width="1.8"/><circle cx="12" cy="12" r="3.1" fill="none" stroke="#8ab" stroke-width="1.8"/></svg></button></div></div>
 <button id=wsave onclick="saveWifi()"><span id=wsav1>Сохранить и подключить</span><span id=wsav2 hidden>Подключено</span></button>
 <button class=sm onclick="forgetWifi()">Забыть сохранённую сеть</button>
 <div class=dim>Сохранённая сеть подключается автоматически при старте.</div>
@@ -6249,6 +6255,10 @@ static void handleWifi(){
     server.send(400, "application/json", "{\"error\":\"ssid\"}");
     return;
   }
+  // blank password for the network that is already saved: keep the stored one -
+  // an empty string would be saved as an open network and lock the user out
+  if(!pass.length() && ssid == cfg.wifiSsid && cfg.wifiPass.length())
+    pass = cfg.wifiPass;
   cfg.wifiSsid = ssid;
   cfg.wifiPass = pass;
   saveCfg();
