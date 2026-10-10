@@ -310,10 +310,18 @@ static bool themeEnabled(const String& k){
   }
   return false;
 }
+// the carousel gate calls this on EVERY loop() pass (thousands/sec): the
+// CSV scan is cheap but not free at that rate - recompute only after
+// cfg.enabled changes (loadCfg sanitize + handleSet theme/themes)
+static int enCountCache = -1;
+static void enCountInvalidate(){ enCountCache = -1; }
 static int enabledCount(){
-  int n = 0;
-  for(int i = 0; i < THEME_N; i++) if(themeEnabled(THEMES[i].key)) n++;
-  return n;
+  if(enCountCache < 0){
+    int n = 0;
+    for(int i = 0; i < THEME_N; i++) if(themeEnabled(THEMES[i].key)) n++;
+    enCountCache = n;
+  }
+  return enCountCache;
 }
 static void nextEnabledTheme(){
   int start = -1;
@@ -2368,6 +2376,7 @@ static void maybeAutoGeo(){
   c.print("GET /json/?fields=status,lat,lon,city,countryCode,timezone,offset HTTP/1.1\r\n"
           "Host: ip-api.com\r\nConnection: close\r\n\r\n");
   String raw;
+  raw.reserve(1536);                      // http headers + tiny body, no churn
   uint32_t t0 = millis();
   while(millis() - t0 < 6000){
     while(c.available()) raw += (char)c.read();
@@ -2564,6 +2573,7 @@ static void sanitizeEnabled(){
     for(int i = 0; i < THEME_N; i++) if(themeEnabled(THEMES[i].key)){ cfg.theme = THEMES[i].key; break; }
     if(!themeExists(cfg.theme)) cfg.theme = THEMES[0].key;
   }
+  enCountInvalidate();
 }
 
 // up to 3 comma separated CoinGecko ids, never empty
@@ -6030,6 +6040,7 @@ static void handleSet(){
       if(!themeEnabled(v)){                    // keep the current theme checked
         if(cfg.enabled.length()) cfg.enabled += ",";
         cfg.enabled += v;
+        enCountInvalidate();
       }
       themeSince = millis();
       mark(RM_FULL);
@@ -6051,6 +6062,7 @@ static void handleSet(){
     }
     if(csv.length() == 0){ server.send(400, "application/json", "{\"error\":\"empty\"}"); return; }
     cfg.enabled = csv;
+    enCountInvalidate();
     if(!themeEnabled(cfg.theme)){
       cfg.theme = ""; 
       for(int i = 0; i < THEME_N; i++) if(themeEnabled(THEMES[i].key)){ cfg.theme = THEMES[i].key; break; }
@@ -6281,6 +6293,7 @@ static void handleWifiScan(){
     }
     WiFi.scanDelete();
     String out;
+    out.reserve(1600);                     // 20 networks, no realloc churn
     serializeJson(d, out);
     server.send(200, "application/json", out);
     return;
@@ -6425,6 +6438,7 @@ static void handleSearch(){
       }
       if(ra.size() >= 12) break;
     }
+    out.reserve(1536);                     // up to 12 coins
     out = ""; serializeJson(r, out);
   }
   server.send(200, "application/json", out);
@@ -6493,6 +6507,7 @@ static void handleGeocode(){
   r["city"] = nm;
   r["country"] = cc;
   String out;
+  out.reserve(768);
   serializeJson(r, out);
   server.send(200, "application/json", out);
 }
@@ -6552,6 +6567,7 @@ static void handleCitySuggest(){
     if(ra.size() >= 5) break;
   }
   String out;
+  out.reserve(768);
   serializeJson(r, out);
   server.send(200, "application/json", out);
 }
@@ -6570,6 +6586,7 @@ static void handleGeoIp(){
   c.print("GET /json/?fields=status,lat,lon,city,countryCode,timezone,offset HTTP/1.1\r\n"
           "Host: ip-api.com\r\nConnection: close\r\n\r\n");
   String raw;
+  raw.reserve(1536);                      // http headers + tiny body, no churn
   uint32_t t0 = millis();
   while(millis() - t0 < 6000){
     while(c.available()) raw += (char)c.read();
@@ -6599,6 +6616,7 @@ static void handleGeoIp(){
     r["offset"] = d["offset"] | 0;
   }
   String out;
+  out.reserve(768);
   serializeJson(r, out);
   server.send(200, "application/json", out);
 }
@@ -6900,9 +6918,11 @@ server.on("/api/phjpg", handlePhJpg);
   bool cached = cacheLoadAll();
   loadPhotoMeta();
   // NO fetch inside setup: the browser's UI burst races the TLS handshake and
-  // collapses the heap to ~2k mid-handshake (ssl=6 "record too large").  All
-  // fetches start 15s in, when the browser has finished loading.
-  coolUntil = millis() + 15000UL;
+  // collapses the heap to ~2k mid-handshake (ssl=6 "record too large").  The
+  // page loads in ~2s; fetchHold (8s after STA-up) is the real shield, so
+  // 10s from boot is a safe floor - the old 15s predates fetchHold and
+  // added ~5s to every cache-less first fill.
+  coolUntil = millis() + 10000UL;
   rm = RM_ALL;      // force a full first paint after boot
   dirty = true;
   Serial.printf("[boot] cache=%d mk=%d wx=%d fc=%d q3=%d\n",
@@ -6955,12 +6975,16 @@ void loop(){
   static uint32_t lastSec = 0;
   if(now / 1000UL != lastSec){ lastSec = now / 1000UL; secTick = true; }
 
-  bool isTicker = (cfg.theme == "ticker");
+  // timeOk() = gettimeofday+localtime_r was paid on EVERY loop() pass
+  // (tens of thousands/sec) just to notice a minute change; isTicker was a
+  // String compare per pass. Both are second-granularity anyway.
+  static bool isTicker = false;
   static int lastMin = -1;
   static bool lastTok = false, lastConn = false;
 
   struct tm ti;
-  bool tok = timeOk(ti);
+  bool tok = lastTok;
+  if(secTick){ tok = timeOk(ti); isTicker = (cfg.theme == "ticker"); }
   bool conn = WiFi.isConnected();
   if(conn != lastConn){
     lastConn = conn;
@@ -6996,7 +7020,7 @@ void loop(){
 
   // access point fallback: raise it when STA is lost, drop it after STA returns
   static bool wasStaUp = false;
-  if(WiFi.isConnected()){
+  if(conn){
     if(!wasStaUp){
       wasStaUp = true;
       // clean install / cache-less join: 8s is enough for DNS + lwip to
@@ -7088,9 +7112,9 @@ void loop(){
       if(dirty) render();
       switch(pollPhase){
         // weather FIRST (city auto-detect + current + forecast), then price,
-        // then the heavy candles, then quotes+holidays: strictly one fetch
-        // per slot, so a clean install downloads everything within ~25s
-        // and the user sees weather before crypto, as asked
+        // then the light pair (quotes + holidays), then the heavy candles:
+        // strictly one fetch per slot, so a clean install downloads everything
+        // in a handful of seconds and the user sees weather before crypto
         case 0: maybeFetchWx();      break;   // weather / auto city / forecast
         case 1: fetchData(false);    break;   // price
         case 2: maybeFetchQuotes(); maybeFetchHolidays(); break;   // light first: quotes + holidays
