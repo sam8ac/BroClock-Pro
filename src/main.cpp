@@ -378,6 +378,9 @@ static bool cdChunk = false;
 static String mkErr;
 static bool  httpSkip = false; // last attempt was DEFERRED (heap gate / NTP wait),
                                // not a real failure: callers keep the old state
+static String mkErrReal;       // last REAL market-path failure (price/candles/quotes).
+                               // mkErr is shared with weather/geocode and must not
+                               // paint the crypto line red for their errors
 
 static uint32_t bootMs = 0;
 static uint32_t themeSince = 0;
@@ -1242,7 +1245,8 @@ static void maybeFetchQuotes(){
   if(ESP.getMaxFreeBlockSize() < 8300UL) return;   // no contiguous room for TLS
   q3Try = t;
   bool qok = fetchQuotes();
-  if(qok) mark(RM_PRICE);
+  if(qok){ mkErrReal = ""; mark(RM_PRICE); }
+  else if(!httpSkip) mkErrReal = mkErr;
   coolUntil = millis() + 4000UL;   // space the next fetcher even on failure
   lastPhase = "q3"; lastPhaseMs = millis() - t;
 }
@@ -2315,9 +2319,15 @@ static void maybeFetchWx(){
 // force an immediate refresh because the underlying data changed (city/symbols).
 // full reset so the stale cache is thrown away.
 static void pokeWx(){
-  wxAt = 0; fcAt = 0;
-  wxTry = fcTry = millis() - 61000UL;   // 61s: maybeFetchWx gates at 60s -> next tick fetches
-  q3At = 0; q3Try = millis() - 21000UL;   // 21s: maybeFetchQuotes gates at 20s
+  // backdate instead of zeroing: `t - wxAt >= 600000` with wxAt=0 only opens
+  // after 10 min of uptime (uint wrap gives exactly 600001 for any t) - the
+  // refresh button was a no-op on any younger boot.  fc same at 30 min.
+  uint32_t t = millis();
+  wxAt = t - 600001UL;
+  fcAt = t - 1800001UL;
+  wxTry = fcTry = t - 61000UL;   // 61s: maybeFetchWx gates at 60s -> next tick fetches
+  q3At = t - (uint32_t)cfg.refresh * 1000UL - 1000UL;
+  q3Try = t - 21000UL;   // 21s: maybeFetchQuotes gates at 20s
 }
 
 // soft nudge: refresh only the pieces that have no data yet.
@@ -2434,6 +2444,7 @@ static void fetchData(bool force){
   lastPhase = "price"; lastPhaseMs = millis() - t0;
   if(ok){
     failSince = 0;
+    mkErrReal = "";
     priceCacheStore();
     coolUntil = millis() + 4000UL;   // space the next TLS: back-to-back fetches shred the heap
     mark(RM_HEAD | RM_PRICE | RM_FOOT);
@@ -2446,6 +2457,7 @@ static void fetchData(bool force){
       Serial.println("[data] failing 3min -> restart");
       delay(50); Serial.flush(); ESP.restart();
     }
+    if(!httpSkip) mkErrReal = mkErr;
     mark(RM_PRICE | RM_FOOT);
     if(mkErr.startsWith("no memory") ||
        mkErr.startsWith("connection failed") ||
@@ -2495,6 +2507,7 @@ static void fetchCandlesData(){
   lastPhase = "candles"; lastPhaseMs = millis() - t0;
   if(ok) buildLineFromCandles();
   if(ok){
+    mkErrReal = "";
     chartCacheStore();
     coolUntil = millis() + 4000UL;   // space the next TLS (same as fetchData)
     mark(RM_CHART);
@@ -2506,6 +2519,7 @@ static void fetchCandlesData(){
     } else if(mkErr.startsWith("no memory") || mkErr.startsWith("connection failed")){
       lastTry = millis() - 15000UL;    // retry in 5s
     }
+    if(!httpSkip) mkErrReal = mkErr;
     if(cdN == 0 && chartCacheLookup(cfg.sym, cfg.range)) mark(RM_CHART);   // last good chart back
     Serial.printf("[candle] FAIL %s\n", mkErr.c_str());
   }
@@ -3466,7 +3480,7 @@ static void tkChart(){
   if(!mkOk){
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(C_DOWN, C_BG);
-    String e = mkErr.length() ? errLoc(mkErr)
+    String e = mkErrReal.length() ? errLoc(mkErrReal)
                                : String(LG("нет данных", "no data", "sin datos", "无数据"));
     if(e.length() > 16) e = cutB(e, 16);   // keep font4 inside the screen
     tft.drawString(e, 120, 154, 4);
@@ -3545,7 +3559,7 @@ static void drawCrypto3(uint8_t m){
       if(!q3[i].ok){
         tft.setTextColor(C_DIM, C_BG);
         String hint = (i < nw) ? want[i] : String("-");
-        if(i == 0 && !q3Ok) hint = mkErr.length() ? cutB(errLoc(mkErr), 22)
+        if(i == 0 && !q3Ok) hint = mkErrReal.length() ? cutB(errLoc(mkErrReal), 22)
                                                   : String(LG("загрузка...", "loading...", "cargando...", "加载中..."));
         tft.drawString(hint, 10, y + 16, 4);
         continue;
@@ -4504,6 +4518,7 @@ var T={
 'Ночной режим подсветки':['Backlight night mode','Modo nocturno de la luz','背光夜间模式'],
 'Обновить данные сейчас':['Refresh data now','Actualizar los datos ahora','立即刷新数据'],
 'Обновить погоду сейчас':['Refresh weather now','Actualizar el clima ahora','立即刷新天气'],
+ 'Обновление…':['Refreshing…','Actualizando…','刷新中…'],
 'Обновить прошивку':['Update firmware','Actualizar el firmware','更新固件'],
 'Обновление данных, сек':['Data refresh, sec','Actualización de datos, seg','数据刷新，秒'],
 'Окончание':['End','Fin','结束'],
@@ -4649,6 +4664,14 @@ function tt(k){var e=TT[k];if(!e)return k;var i=(LANG==='ru')?0:LANGS.indexOf(LA
 function j(u){return fetch(u).then(r=>r.json())}
 function st(){j('/api/status').then(s=>{applySettings(s);renderWifi(s);});}
 setInterval(st,5000);st();
+function doRefresh(b){
+  if(b.disabled)return;
+  var o=b.textContent;b.disabled=true;
+  b.textContent=ttr('Обновление…');
+  fetch('/api/refresh').then(r=>r.json()).catch(function(){}).then(function(){
+    var n=0,iv=setInterval(function(){st();if(++n>=6){clearInterval(iv);b.disabled=false;b.textContent=o;}},1500);
+  });
+}
 function set(k,v){fetch('/api/set?key='+k+'&value='+encodeURIComponent(v)).then(r=>r.json()).then(x=>{if(x.need)location.reload();else st()})}
 var tlDrawn=false;
 function syncThemes(list,cur){
@@ -5396,7 +5419,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <label>График</label><select id=chi onchange="selTouched=true;set('chart',this.value)">
 <option value=candle>Свечи</option><option value=line>Линия</option></select>
 <label>Обновление данных, сек</label><input id=refi type=number value=60 onchange="set('refresh',this.value)">
-<button onclick="fetch('/api/refresh').then(()=>st())">Обновить данные сейчас</button>
+<button onclick="doRefresh(this)">Обновить данные сейчас</button>
 <div class=dim id=mkmsg style="margin-top:2px"></div>
 <label>Вторичный рынок · до 3 монет</label>
 <div id=chips class=chips>…</div>
@@ -5417,7 +5440,7 @@ document.addEventListener('DOMContentLoaded',function(){
 <option value=owm>OpenWeatherMap</option>
 <option value=ometo>Open-Meteo (без ключа, город и с русским названием)</option>
 </select>
-<button onclick="fetch('/api/refresh').then(()=>st())">Обновить погоду сейчас</button>
+<button onclick="doRefresh(this)">Обновить погоду сейчас</button>
 <div class=dim id=wxmsg style="margin-top:2px"></div>
 <div class=dim>Погода обновляется автоматически каждые 10 минут.</div>
 </div>
@@ -5878,10 +5901,9 @@ static void handleStatus(){
   out += "\",\"age\":\""; out += mkOk ? String((millis() - mkAt) / 1000) +
                                 LG(" с назад", "s ago", "s atrás", "秒前")
                                      : LG("нет данных", "no data", "sin datos", "无数据");
-  // deferred attempt or fresh price: a red error would be a lie
+  // only REAL market-path failures: mkErr is shared with weather/geocode
   out += "\",\"err\":";
-  jsonEsc(out, (httpSkip || (mkOk && millis() - mkAt <= (uint32_t)cfg.refresh * 2000UL))
-                ? String("") : errLoc(mkErr));
+  jsonEsc(out, errLoc(mkErrReal));
   out += '}';
   server.send(200, "application/json", out);
 }
@@ -6103,7 +6125,12 @@ static void handleSet(){
 static void handleRefresh(){
   // same rule as handleSet: only invalidate the caches here, the requests
   // happen in loop() where there are no competing socket/FS buffers
-  mkAt = 0; lastFetchTry = 0;
+  // backdate, never zero: the gates compare absolute millis(), so mkAt=0 read
+  // as "fetched at boot" - dead button until 60s uptime and an age readout
+  // counting the whole uptime.  A backdated stamp opens every age gate now.
+  mkAt = millis() - (uint32_t)cfg.refresh * 1000UL - 1000UL;
+  lastFetchTry = 0;
+  mkErrReal = "";
   candlesForce = true;
   coolUntil = millis() + 2000UL;   // let any in-flight fetch finish first
   pokeWx();
