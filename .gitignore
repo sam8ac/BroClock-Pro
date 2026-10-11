@@ -11,9 +11,6 @@ __pycache__/
 *.pyc
 
 # Local flash artifacts (release binaries live in GitHub Releases, not in git)
-SDP_firmware.bin
-BroClock_Pro_firmware.bin
-BroClock_Pro_factory.bin
 flash_out/
 test_out.txt
 serwx.txt
