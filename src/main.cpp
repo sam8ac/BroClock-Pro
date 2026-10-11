@@ -78,7 +78,9 @@ struct Cfg {
   uint8_t nbr  = 20;       // night brightness percent (0..100)
   String tfmt  = "24";     // clock format: "24" | "12" (AM/PM)
   String lang  = "en";     // UI language: "ru" | "en" | "es" | "zh" (default English)
-  String wprov = "owm";    // weather source: "owm" | "ometo"
+  String wprov = "ometo";  // weather source: "owm" | "ometo" (ometo needs no key)
+  String owmKey;           // OpenWeatherMap API key, user-entered ("" = none)
+  String cgKey;            // optional CoinGecko Demo API key ("" = free public)
 } cfg;
 
 // 0 = ru, 1 = en, 2 = es, 3 = zh
@@ -730,6 +732,8 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
     if(!http.begin(cli, url)){ mkErr = "begin failed"; return false; }
     http.addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
     http.addHeader("Accept", "application/json");
+    if(cfg.cgKey.length() && url.indexOf("api.coingecko.com") >= 0)
+      http.addHeader("x-cg-demo-api-key", cfg.cgKey);
     http.addHeader("Accept-Encoding", "identity");
     code = http.GET();
     lastHttpMs = millis() - t0;
@@ -1285,7 +1289,8 @@ static String urlencode(const String& s){
   return o;
 }
 
-static const char* OWM_KEY = "";
+// OpenWeatherMap key comes from the user (cfg.owmKey, Weather tab); the
+// firmware ships keyless and defaults to Open-Meteo.
 
 // blocking read with timeout (Stream::available loop keeps the WDT fed via
 // delay()); -1 on timeout/EOF
@@ -1393,8 +1398,13 @@ static bool omGeocode();
 static bool fetchWeatherOwm(){
   {
     JsonDocument d;
+    if(!cfg.owmKey.length()){
+      wxErr = LG("нет ключа OWM", "no OWM key", "sin clave OWM", "缺少 OWM 密钥");
+      wxOk = false;
+      return false;
+    }
     String url = owmBase() + "/weather?q=" + urlencode(cfg.city) +
-                 "&units=metric&appid=" + OWM_KEY + langQ();
+                 "&units=metric&appid=" + cfg.owmKey + langQ();
     if(!httpJson(url, d, WX_CUR_FILTER)){
       if(!httpSkip){ wxErr = mkErr; wxOk = false; }   // deferred: keep old state
       return false;
@@ -1475,21 +1485,19 @@ static bool omGeoPrefix(){
 
 static bool omGeocode(){
   if(omGeoOk && omGeoQ == cfg.city) return true;
-  // 1) OWM geocoder first: it accepts Latin AND Cyrillic, resolves both of
-  //    OWM's spellings ("Vitsebsk") and supplies coords/cc in one handshake.
-  //    Open-Meteo exact ran first and answered HTTP 200 with an EMPTY
-  //    result for "Vitsebsk" - that wasted handshake left mfb=7320 for the
-  //    prefix retry below and the gate (>=7550) skipped it, so the English
-  //    name got cached on zh.
+  // 1) OWM geocoder first (only when the user provided a key): it accepts
+  //    Latin AND Cyrillic, resolves both of OWM's spellings ("Vitsebsk")
+  //    and supplies coords/cc in one handshake.
   String u2 = String("https://api.openweathermap.org/geo/1.0/direct?q=") +
-              urlencode(cfg.city) + "&limit=1&appid=" + OWM_KEY + langQ();
+              urlencode(cfg.city) + "&limit=1&appid=" + cfg.owmKey + langQ();
+  if(!cfg.owmKey.length()){ u2 = ""; }   // keyless: skip straight to step 2
   String F2 = String("[{\"name\":true,\"local_names\":{\"") + owmLocKey() +
               "\":true},\"lat\":true,\"lon\":true,\"country\":true}]";
   bool haveOwm = false, haveRn = false;
   String owmName, rnS;
   {
     JsonDocument g;
-    if(httpJson(u2, g, F2.c_str())){
+    if(u2.length() && httpJson(u2, g, F2.c_str())){
       JsonObject o = g[0].as<JsonObject>();
       if(!o.isNull()){
         omGeoLat = o["lat"] | 0.0f;
@@ -1614,8 +1622,12 @@ static bool jsStr(const String& s, const char* key, char* out, int n){
 // "list", pull each element into a bounded buffer and fold the rows into the
 // five day buckets as we go, so peak RAM is the TLS buffers plus 700 bytes.
 static bool fetchForecastOwm(){
+  if(!cfg.owmKey.length()){
+    mkErr = LG("нет ключа OWM", "no OWM key", "sin clave OWM", "缺少 OWM 密钥");
+    return false;
+  }
   String url = owmBase() + "/forecast?q=" + urlencode(cfg.city) +
-               "&units=metric&appid=" + OWM_KEY + langQ();
+               "&units=metric&appid=" + cfg.owmKey + langQ();
   BearSSL::WiFiClientSecure cli;
   HTTPClient http;
   int code = 0;
@@ -2808,6 +2820,8 @@ static void saveCfg(){
   d["tfmt"] = cfg.tfmt;
   d["lang"] = cfg.lang;
   d["wprov"] = cfg.wprov;
+  d["owmkey"] = cfg.owmKey;
+  d["cgkey"] = cfg.cgKey;
   File f = LittleFS.open("/config.json", "w");
   if(!f) return;
   serializeJson(d, f);
@@ -2888,6 +2902,11 @@ static void loadCfg(){
     String s = d["wprov"].as<String>();
     if(s == "owm" || s == "ometo") cfg.wprov = s;
   }
+  if(d["owmkey"].is<const char*>()) cfg.owmKey = d["owmkey"].as<String>();
+  if(d["cgkey"].is<const char*>())  cfg.cgKey  = d["cgkey"].as<String>();
+  // legacy configs: an old default of "owm" without any user key cannot
+  // work on a keyless build -> fall back to Open-Meteo
+  if(cfg.wprov == "owm" && !cfg.owmKey.length()) cfg.wprov = "ometo";
 
   sanitizeEnabled();          // drops themes that no longer exist (dial/simple)
   if(cfg.brightness > 100) cfg.brightness = 100;   // old configs stored 0..255
@@ -4577,6 +4596,10 @@ var T={
 'Аргентина':['Argentina','Argentina','阿根廷'],'Беларусь':['Belarus','Bielorrusia','白俄罗斯'],
 'Бельгия':['Belgium','Bélgica','比利时'],'Болгария':['Bulgaria','Bulgaria','保加利亚'],
 'Бразилия':['Brazil','Brasil','巴西'],'Введите свой город':['Enter your city','Introduce tu ciudad','输入您的城市'],
+'API-ключ OpenWeatherMap':['OpenWeatherMap API key','Clave API de OpenWeatherMap','OpenWeatherMap API 密钥'],
+'API-ключ CoinGecko (необязательно)':['CoinGecko API key (optional)','Clave API de CoinGecko (opcional)','CoinGecko API 密钥（可选）'],
+'Нужен только для OpenWeatherMap: бесплатный ключ на openweathermap.org/api. Пустое поле ничего не меняет. При переключении на Open-Meteo ключ стирается. Прошивка не содержит ключей.':['Only needed for OpenWeatherMap: get a free key at openweathermap.org/api. An empty field changes nothing. Switching to Open-Meteo erases the key. The firmware ships without any keys.','Solo es necesario para OpenWeatherMap: obtén una clave gratuita en openweathermap.org/api. Un campo vacío no cambia nada. Al cambiar a Open-Meteo se borra la clave. El firmware no incluye claves.','仅 OpenWeatherMap 需要：在 openweathermap.org/api 免费获取密钥。留空不改变任何内容。切换到 Open-Meteo 会删除密钥。固件不内置任何密钥。'],
+'Без ключа работает публичный free-tier CoinGecko. Demo-ключ (coingecko.com/en/api) поднимает лимиты. Пустое поле ничего не меняет.':['Without a key the public CoinGecko free-tier is used. A Demo key (coingecko.com/en/api) raises the limits. An empty field changes nothing.','Sin clave se usa el free-tier público de CoinGecko. Una clave Demo (coingecko.com/en/api) aumenta los límites. Un campo vacío no cambia nada.','不填密钥则使用 CoinGecko 公共免费档。Demo 密钥（coingecko.com/en/api）可提高限额。留空不改变任何内容。'],
 'Великобритания':['United Kingdom','Reino Unido','英国'],
 'Венгрия':['Hungary','Hungría','匈牙利'],
 'Вторичный рынок · до 3 монет':['Secondary market · up to 3 coins','Mercado secundario · hasta 3 monedas','二级市场 · 最多3种币'],
@@ -4708,6 +4731,7 @@ alertTheme:['Нужна хотя бы одна тема','Pick at least one them
 nothing:['ничего не найдено','nothing found','nada encontrado','未找到内容'],
 searchErr:['ошибка поиска','search error','error de búsqueda','搜索错误'],
 noData:['нет данных','no data','sin datos','无数据'],
+keyNeeded:['нет ключа OWM','no OWM key','sin clave OWM','缺少 OWM 密钥'],
 customPosix:['свой POSIX','custom POSIX','POSIX personalizado','自定义 POSIX'],
 scanning:['Сканирование…','Scanning…','Escaneando…','扫描中…'],
 scanBtn:['Сканировать сети','Scan networks','Escanear redes','扫描网络'],
@@ -4937,6 +4961,7 @@ function renderFetchState(s){
   var wm=document.getElementById('wxmsg');
   if(wm){
     var we=s.wxerr||'';
+    if(!we&&s.wprov==='owm'&&!s.owmk)we=lx('Погода: укажите API-ключ OpenWeatherMap','Weather: set the OpenWeatherMap API key','Clima: configura la clave API de OpenWeatherMap','天气：请设置 OpenWeatherMap API 密钥');
     var wwait=(!we&&(!s.wxok||!s.wxage||s.wxage=='-'));
     wm.textContent=(we?ttr('Погода: ошибка обновления')+' — '+we
                      :wwait?ttr('Погода: данные загружаются…')
@@ -4971,7 +4996,13 @@ function applySettings(s){
   setVal('chi', s.chart, 1);
   setVal('tfmt', s.tfmt||'24', 1);
   setVal('langsel', s.lang||'en', 1);
-  setVal('wprovsel', s.wprov||'owm', 1);
+  setVal('wprovsel', s.wprov||'ometo', 1);
+  var ow=document.getElementById('owmkw');
+  if(ow)ow.hidden=(s.wprov||'ometo')!=='owm';
+  var oi=document.getElementById('owmk');
+  if(oi){oi.value='';oi.placeholder=s.owmk?'•••• (ключ сохранён)':'пусто — оставить текущий';}
+  var ci=document.getElementById('cgk');
+  if(ci){ci.value='';ci.placeholder=s.cgk?'•••• (ключ сохранён)':'пусто — публичный free-tier';}
   var ct=document.querySelector('a[data-sec=crypto]');
   if(ct) ct.textContent=lx('Крипто','Crypto','Cripto','加密');
   setVal('carb', s.carousel?'1':'0');
@@ -5544,6 +5575,11 @@ document.addEventListener('DOMContentLoaded',function(){
 <label>Вторичный рынок · до 3 монет</label>
 <div id=chips class=chips>…</div>
 <label>Найти и добавить монету</label>
+<div id=cgkw>
+<label>API-ключ CoinGecko (необязательно)</label>
+<div class=pwr><input id=cgk type=password placeholder="пусто — публичный free-tier" autocomplete=off onchange="if(this.value)set('cgkey',this.value)"><button type=button class=eye onclick="pwTog('cgk',this)" aria-label="Показать ключ"><svg viewBox="0 0 24 24" width="19" height="19"><path d="M12 5.5C5.7 5.5 2.2 12 2.2 12S5.7 18.5 12 18.5 21.8 12 21.8 12 18.3 5.5 12 5.5z" fill="none" stroke="#8ab" stroke-width="1.8"/><circle cx="12" cy="12" r="3.1" fill="none" stroke="#8ab" stroke-width="1.8"/></svg></button></div>
+<div class=dim>Без ключа работает публичный free-tier CoinGecko. Demo-ключ (coingecko.com/en/api) поднимает лимиты. Пустое поле ничего не меняет.</div>
+</div>
 <input id=q_syms placeholder="ethereum, cardano, tron…" oninput="qSearch('syms')" autocomplete=off>
 <div id=r_syms class=sr></div>
 <button class=sm onclick="pick('syms',document.getElementById('q_syms').value)">Указать id вручную</button>
@@ -5560,6 +5596,11 @@ document.addEventListener('DOMContentLoaded',function(){
 <option value=owm>OpenWeatherMap</option>
 <option value=ometo>Open-Meteo (без ключа, город и с русским названием)</option>
 </select>
+<div id=owmkw>
+<label>API-ключ OpenWeatherMap</label>
+<div class=pwr><input id=owmk type=password placeholder="пусто — оставить текущий" autocomplete=off onchange="if(this.value)set('owmkey',this.value)"><button type=button class=eye onclick="pwTog('owmk',this)" aria-label="Показать ключ"><svg viewBox="0 0 24 24" width="19" height="19"><path d="M12 5.5C5.7 5.5 2.2 12 2.2 12S5.7 18.5 12 18.5 21.8 12 21.8 12 18.3 5.5 12 5.5z" fill="none" stroke="#8ab" stroke-width="1.8"/><circle cx="12" cy="12" r="3.1" fill="none" stroke="#8ab" stroke-width="1.8"/></svg></button></div>
+<div class=dim>Нужен только для OpenWeatherMap: бесплатный ключ на openweathermap.org/api. Пустое поле ничего не меняет. При переключении на Open-Meteo ключ стирается. Прошивка не содержит ключей.</div>
+</div>
 <button onclick="doRefresh(this)">Обновить погоду сейчас</button>
 <div class=dim id=wxmsg style="margin-top:2px"></div>
 <div class=dim>Погода обновляется автоматически каждые 10 минут.</div>
@@ -6009,7 +6050,9 @@ static void handleStatus(){
   out += ",\"tfmt\":";       jsonEsc(out, cfg.tfmt);
   out += ",\"lang\":\"";     out += cfg.lang;
   out += "\",\"wprov\":\"";  out += cfg.wprov;
-  out += "\",\"pf\":";
+  out += "\",\"owmk\":";  out += cfg.owmKey.length() ? "1" : "0";
+  out += ",\"cgk\":";   out += cfg.cgKey.length()  ? "1" : "0";
+  out += ",\"pf\":";
   if(phKind == 1){
     out += "{\"k\":\"jpg\",\"w\":"; out += String(phW);
     out += ",\"h\":"; out += String(phH);
@@ -6162,11 +6205,31 @@ static void handleSet(){
       return;
     }
     cfg.wprov = v;
+    if(v == "ometo") cfg.owmKey = "";   // privacy: drop the unused OWM key
     uint32_t t = millis();          // make the age gates pass right now so both
     wxAt = t - 600000UL;            // current weather and forecast refetch from
     fcAt = t - 1800000UL;           // the new source without blanking the data
     wxTry = fcTry = t - 61000UL;
     omGeoInvalidate();              // stored coordinates may belong elsewhere
+  } else if(k == "owmkey"){
+    String s = v; s.trim();
+    if(s == "-clear") s = "";   // explicit wipe from the UI helper
+    if(s.length() > 128){ server.send(400, "application/json", "{\"error\":\"key too long\"}"); return; }
+    cfg.owmKey = s;
+    if(cfg.wprov == "owm" && !s.length()) cfg.wprov = "ometo";
+    omGeoInvalidate();
+    uint32_t t = millis();
+    wxAt = t - 600000UL; fcAt = t - 1800000UL;
+    wxTry = fcTry = t - 61000UL;
+    coolUntil = t + 3000UL;
+  } else if(k == "cgkey"){
+    String s = v; s.trim();
+    if(s == "-clear") s = "";
+    if(s.length() > 128){ server.send(400, "application/json", "{\"error\":\"key too long\"}"); return; }
+    cfg.cgKey = s;
+    uint32_t t = millis();
+    mkAt = 0; lastFetchTry = 0; candlesForce = true;
+    coolUntil = t + 3000UL;
   } else if(k == "chart"){
     // data is already shared: line is built from the same candles -> no network wait
     cfg.chart = (v == "line") ? "line" : "candle";
@@ -6512,10 +6575,10 @@ static void handleGeocode(){
       cc = String((const char*)(d["countryCode"] | ""));
     }
   }
-  if(!nm.length() && OWM_KEY && OWM_KEY[0]){
+  if(!nm.length() && cfg.owmKey.length()){
     String url = String("https://api.openweathermap.org/geo/1.0/reverse?lat=") +
                  String(la, 4) + "&lon=" + String(lo, 4) +
-                 "&limit=1&appid=" + OWM_KEY + langQ();
+                 "&limit=1&appid=" + cfg.owmKey + langQ();
     JsonDocument d;
     srvSkip = true;
     bool gok = httpJson(url, d);

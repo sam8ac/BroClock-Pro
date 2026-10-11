@@ -7,11 +7,21 @@
 ![PlatformIO](https://img.shields.io/badge/PlatformIO-ready-orange?style=for-the-badge&logo=platformio)
 [![Downloads](https://img.shields.io/github/downloads/sam8ac/BroClock-Pro/total?label=Downloads&style=for-the-badge)](https://github.com/sam8ac/BroClock-Pro/releases)
 [![Issues](https://img.shields.io/github/issues/sam8ac/BroClock-Pro?style=for-the-badge)](https://github.com/sam8ac/BroClock-Pro/issues)
+![i18n: EN · RU · ES · ZH](https://img.shields.io/badge/i18n-EN%20%C2%B7%20RU%20%C2%B7%20ES%20%C2%B7%20ZH-2b6?style=for-the-badge)
+
+**Язык страницы:** **Русский** · [English](README.en.md) · [Español](README.es.md) · [中文](README.zh.md)
 
 **RetroTV Pro** (BroClock Pro) — open-source ESP8266 firmware for
 **GeekMagic SmallTV / SmallTV-Ultra**-class retro clocks (incl. the SD PRO
 board): crypto & weather desk clock with 8 themes, candlestick charts,
 carousel, holidays, OTA and a **4-language** web UI.
+
+> 🌐 **Наша гордость — полностью локализованный интерфейс на 4 языках:
+> русский · English · Español · 中文.**
+> Не только меню: переведены статусы, ошибки, подсказки, алерты сканера Wi-Fi,
+> сообщения загрузки фото и обновлений. Переключение — одна кнопка в веб-панели,
+> мгновенно, без перезагрузки страницы; выбор запоминается на устройстве,
+> синхронизируется с языком экрана и работает полностью офлайн.
 
 [Установка / Install](docs/INSTALL.md) · [Hardware](docs/HARDWARE.md) · [HTTP API](docs/HTTP-API.md) · [Releases](https://github.com/sam8ac/BroClock-Pro/releases) · [Issues](https://github.com/sam8ac/BroClock-Pro/issues)
 
@@ -47,6 +57,10 @@ licensed.
 (без перезагрузки страницы), выбор запоминается на устройстве и синхронизируется
 с языком экрана. Заголовки вкладок, настроек и блоков, часы (12/24), алерты
 сканера Wi-Fi, ошибки загрузки фото, геолокации и обновлений — все переведены.
+
+Этот README тоже переведён: [English](README.en.md) · [Español](README.es.md) · [中文](README.zh.md).
+Локализация прошивки — одна таблица словаря в начале [`src/main.cpp`](src/main.cpp):
+добавить язык проще всего.
 
 ## ✨ Все преимущества
 
