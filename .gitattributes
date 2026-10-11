@@ -1,0 +1,5 @@
+# Force Linguist to classify Arduino/ESP8266 headers as C++, not C
+*.h linguist-language=C++
+*.cpp linguist-language=C++
+*.hpp linguist-language=C++
+*.ino linguist-language=C++
