@@ -11,6 +11,7 @@ __pycache__/
 *.pyc
 
 # Local flash artifacts (release binaries live in GitHub Releases, not in git)
+tools/BroClock_Pro_*.bin
 flash_out/
 test_out.txt
 serwx.txt
