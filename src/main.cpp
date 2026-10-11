@@ -5192,17 +5192,28 @@ function renderWifi(s){
     +(w.saved&&w.ssid!=w.saved?('<br>'+tt('wifiSaved')+'<b>'+esc(w.saved)+'</b>'):'');
   setVal('wssid', w.saved||'', 1);
   wifiCur=(w.connected&&w.ssid)?String(w.ssid):'';
+  wifiSaved=w.saved?String(w.saved):'';
   syncWifiForm();
 }
-var wifiCur='';
+var wifiCur='', wifiSaved='';
 function syncWifiForm(){
   var e=document.getElementById('wssid'); if(!e)return;
-  var same=!!(wifiCur&&e.value.trim()===wifiCur);
+  var val=e.value.trim();
+  var same=!!(wifiCur&&val===wifiCur);
   e.readOnly=same;
-  var pw=document.getElementById('wpassw'); if(pw)pw.hidden=false;
+  var known=!!(val&&(val===wifiCur||val===wifiSaved));
+  var pw=document.getElementById('wpassw');
   var pe=document.getElementById('wpass');
+  if(known){
+    if(pw)pw.hidden=true;
+    if(pe&&pe.value){
+      pe.value='';
+      pe.type='password';
+      var eb=document.querySelector('#wpassw .eye'); if(eb)eb.innerHTML=EYE;
+    }
+  }else if(pw)pw.hidden=false;
   var typed=!!(pe&&pe.value);
-  if(pe)pe.placeholder=ttr(same?'пусто — оставить текущий':'пусто — открытая сеть');
+  if(pe)pe.placeholder=ttr(known?'пусто — оставить текущий':'пусто — открытая сеть');
   var b=document.getElementById('wsave'); if(b)b.disabled=same&&!typed;
   var s1=document.getElementById('wsav1'), s2=document.getElementById('wsav2');
   if(s1)s1.hidden=same&&!typed; if(s2)s2.hidden=!(same&&!typed);
