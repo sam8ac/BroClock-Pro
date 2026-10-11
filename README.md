@@ -1,31 +1,19 @@
-<p align="center">
-  <img src="assets/banner.svg" alt="RetroTV Pro — ESP8266 crypto clock firmware for SmallTV / SD PRO" width="100%">
-</p>
+![BroClock Pro — ESP8266 crypto clock firmware for SmallTV / SD PRO](assets/banner.svg)
 
-<p align="center">
-  <a href="https://github.com/sam8ac/BroClock-Pro/releases/latest"><img src="https://img.shields.io/github/v/release/sam8ac/BroClock-Pro?label=Release&color=c56a90&style=for-the-badge&logo=star" alt="Release"></a>
-  <a href="https://github.com/sam8ac/BroClock-Pro/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="MIT License"></a>
-  <a href="https://github.com/sam8ac/BroClock-Pro/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/sam8ac/BroClock-Pro/ci.yml?branch=main&label=Build&style=for-the-badge&logo=github" alt="CI"></a>
-  <img src="https://img.shields.io/badge/platform-ESP8266-2b6?style=for-the-badge" alt="ESP8266">
-  <img src="https://img.shields.io/badge/PlatformIO-ready-orange?style=for-the-badge&logo=platformio" alt="PlatformIO">
-  <a href="https://github.com/sam8ac/BroClock-Pro/releases"><img src="https://img.shields.io/github/downloads/sam8ac/BroClock-Pro/total?label=Downloads&style=for-the-badge" alt="Downloads"></a>
-  <a href="https://github.com/sam8ac/BroClock-Pro/issues"><img src="https://img.shields.io/github/issues/sam8ac/BroClock-Pro?style=for-the-badge" alt="Issues"></a>
-</p>
+[![Release](https://img.shields.io/github/v/release/sam8ac/BroClock-Pro?label=Release&color=c56a90&style=for-the-badge&logo=star)](https://github.com/sam8ac/BroClock-Pro/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/sam8ac/BroClock-Pro/ci.yml?branch=main&label=Build&style=for-the-badge&logo=github)](https://github.com/sam8ac/BroClock-Pro/actions/workflows/ci.yml)
+![ESP8266](https://img.shields.io/badge/platform-ESP8266-2b6?style=for-the-badge)
+![PlatformIO](https://img.shields.io/badge/PlatformIO-ready-orange?style=for-the-badge&logo=platformio)
+[![Downloads](https://img.shields.io/github/downloads/sam8ac/BroClock-Pro/total?label=Downloads&style=for-the-badge)](https://github.com/sam8ac/BroClock-Pro/releases)
+[![Issues](https://img.shields.io/github/issues/sam8ac/BroClock-Pro?style=for-the-badge)](https://github.com/sam8ac/BroClock-Pro/issues)
 
-<p align="center">
-  <b>RetroTV Pro</b> (BroClock Pro) — open-source ESP8266 firmware for
-  <b>GeekMagic SmallTV / SmallTV-Ultra</b>-class retro clocks (incl. the SD PRO
-  board): crypto & weather desk clock with 8 themes, candlestick charts,
-  carousel, holidays, OTA and a <b>4-language</b> web UI.
-</p>
+**RetroTV Pro** (BroClock Pro) — open-source ESP8266 firmware for
+**GeekMagic SmallTV / SmallTV-Ultra**-class retro clocks (incl. the SD PRO
+board): crypto & weather desk clock with 8 themes, candlestick charts,
+carousel, holidays, OTA and a **4-language** web UI.
 
-<p align="center">
-  <a href="docs/INSTALL.md">Установка / Install</a> ·
-  <a href="docs/HARDWARE.md">Hardware</a> ·
-  <a href="docs/HTTP-API.md">HTTP API</a> ·
-  <a href="https://github.com/sam8ac/BroClock-Pro/releases">Releases</a> ·
-  <a href="https://github.com/sam8ac/BroClock-Pro/issues">Issues</a>
-</p>
+[Установка / Install](docs/INSTALL.md) · [Hardware](docs/HARDWARE.md) · [HTTP API](docs/HTTP-API.md) · [Releases](https://github.com/sam8ac/BroClock-Pro/releases) · [Issues](https://github.com/sam8ac/BroClock-Pro/issues)
 
 ---
 
@@ -137,7 +125,7 @@ python -m esptool --port COM5 --baud 460800 write-flash 0x0 SDP_firmware.bin
 Windows? Запустите `tools\flash_broclock.bat` рядом с `.bin` — он сам найдёт
 CH340, прошьёт и проверит хеш:
 
-<p align="center"><img src="assets/Installation using bat.JPG" alt="flash_broclock.bat" width="70%"></p>
+![flash_broclock.bat — установщик прошивки для Windows](<assets/Installation using bat.JPG>)
 
 ## 🔨 Сборка из исходников
 
@@ -175,6 +163,4 @@ Issues и PR приветствуются — чек-лист в
 
 ---
 
-<p align="center">
-  <sub>Поисковые теги / keywords: smalltv · geekmagic · GeekMagicClock · SmallTV-Ultra · ESP8266 · ST7789 · retro clock · crypto ticker · weather station · PlatformIO · SD PRO · Arduino</sub>
-</p>
+*Поисковые теги / keywords: smalltv · geekmagic · GeekMagicClock · SmallTV-Ultra · ESP8266 · ST7789 · retro clock · crypto ticker · weather station · PlatformIO · SD PRO · Arduino*
