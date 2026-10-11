@@ -29,7 +29,7 @@
     </g>
     <line x1="24" y1="152" x2="180" y2="152" stroke="#2a3342" stroke-width="2"/>
   </g>
-  <text x="420" y="158" font-size="60" font-weight="800" fill="#e8f5ee">RetroTV Pro</text>
+  <text x="420" y="158" font-size="60" font-weight="800" fill="#e8f5ee">BroClock Pro</text>
   <text x="420" y="208" font-size="26" fill="#9ab">ESP8266 crypto clock firmware for SmallTV / SD PRO</text>
   <rect x="420" y="232" width="820" height="4" rx="2" fill="url(#acc)"/>
   <text x="420" y="278" font-size="20" fill="#678">ST7789 240x240 &#183; PlatformIO &#183; OTA &#183; 4-language web UI &#183; MIT</text>

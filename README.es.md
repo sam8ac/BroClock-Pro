@@ -9,9 +9,9 @@
 [![Issues](https://img.shields.io/github/issues/sam8ac/BroClock-Pro?style=for-the-badge)](https://github.com/sam8ac/BroClock-Pro/issues)
 ![i18n: EN · RU · ES · ZH](https://img.shields.io/badge/i18n-EN%20%C2%B7%20RU%20%C2%B7%20ES%20%C2%B7%20ZH-2b6?style=for-the-badge)
 
-**Idioma de la página:** [Русский](README.md) · [English](README.en.md) · **Español** · [中文](README.zh.md)
+**Idioma de la página:** [English](README.md) · [Русский](README.ru.md) · **Español** · [中文](README.zh.md)
 
-**RetroTV Pro** (BroClock Pro) — firmware open source ESP8266 para relojes de
+**BroClock Pro** — firmware open source ESP8266 para relojes de
 escritorio retro de la familia **GeekMagic SmallTV / SmallTV-Ultra** (incluida
 la placa SD PRO): reloj de escritorio con cripto y clima, 8 temas, gráficos de
 velas, carrusel, festivos, OTA y una interfaz web en **4 idiomas**.
@@ -60,7 +60,7 @@ idioma de la pantalla. Títulos de pestañas, secciones de ajustes, formato de
 reloj (12/24), alertas del escáner Wi-Fi, errores de subida de fotos,
 geolocalización y actualizaciones — todo traducido.
 
-Este README también está en: [Русский](README.md) · [English](README.en.md) · [中文](README.zh.md).
+Este README también está en: [English](README.md) · [Русский](README.ru.md) · [中文](README.zh.md).
 La localización del firmware es una sola tabla de diccionario al inicio de
 [`src/main.cpp`](src/main.cpp) — añadir un idioma es la contribución más fácil.
 
@@ -134,7 +134,7 @@ La foto del dispositivo y las demos GIF están embebidas arriba; la carpeta comp
 
 Probado en **SD PRO** (ambas revisiones de pines) y NodeMCU + ST7789;
 eléctricamente compatible con la familia
-[GeekMagic SmallTV / SmallTV-Ultra](https://github.com/GeekMagicClock/smalltv-ultra).
+GeekMagic SmallTV / SmallTV-Ultra.
 
 > ⚠️ **SmallTV-Pro (ESP32) no es compatible.** El primer flash requiere
 > USB-UART, después OTA. Tabla completa de dispositivos y pasos:
@@ -180,11 +180,6 @@ Issues y PRs bienvenidos — checklist en
 La localización es el inicio más fácil: todo el diccionario de la UI es una
 tabla al inicio de `src/main.cpp`.
 
-## ⭐ Proyectos similares
-
-- [Times-Z/GeekMagic-Open-Firmware](https://github.com/Times-Z/GeekMagic-Open-Firmware) — firmware open GPLv3 para GeekMagic / HelloCubic
-- [aydarik/geekmagic-tv-esp8266](https://github.com/aydarik/geekmagic-tv-esp8266) — firmware MIT ESP8266 para GeekMagic SmallTV
-- [GeekMagicClock/smalltv-ultra](https://github.com/GeekMagicClock/smalltv-ultra) — firmwares oficiales Ultra y manuales
 
 ## 📜 Licencia
 

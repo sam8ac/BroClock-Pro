@@ -9,9 +9,9 @@
 [![Issues](https://img.shields.io/github/issues/sam8ac/BroClock-Pro?style=for-the-badge)](https://github.com/sam8ac/BroClock-Pro/issues)
 ![i18n: EN · RU · ES · ZH](https://img.shields.io/badge/i18n-EN%20%C2%B7%20RU%20%C2%B7%20ES%20%C2%B7%20ZH-2b6?style=for-the-badge)
 
-**页面语言：** [Русский](README.md) · [English](README.en.md) · [Español](README.es.md) · **中文**
+**页面语言：** [English](README.md) · [Русский](README.ru.md) · [Español](README.es.md) · **中文**
 
-**RetroTV Pro**（BroClock Pro）是运行在 **GeekMagic SmallTV / SmallTV-Ultra** 系列（含 SD PRO 板卡）桌面上的复古电视造型时钟的开源 ESP8266 固件：加密货币行情 + 天气、8 套主题、K 线图、轮播、节假日日历、OTA 升级，以及 **4 种语言**的网页管理界面。
+**BroClock Pro**是运行在 **GeekMagic SmallTV / SmallTV-Ultra** 系列（含 SD PRO 板卡）桌面上的复古电视造型时钟的开源 ESP8266 固件：加密货币行情 + 天气、8 套主题、K 线图、轮播、节假日日历、OTA 升级，以及 **4 种语言**的网页管理界面。
 
 > 🌐 **核心亮点——界面完整本地化为 4 种语言：英语 · 俄语 · 西班牙语 · 中文。**
 > 不只是菜单：状态、错误、警告、WiFi 扫描提示、照片上传与固件升级消息——全部翻译。在网页中一键切换，即时生效、无需刷新；选择保存在设备中，与屏幕语言同步，100% 离线可用。
@@ -41,7 +41,7 @@
 
 **EN · RU · ES · ZH** —— 全部界面，包括错误信息、警告、弹窗提示和状态。网页切换即时生效（无需刷新），选择保存在设备中并与屏幕语言同步。浏览器标签页标题、设置分区、时钟格式（12/24 小时）、WiFi 扫描警告、照片上传错误、地理定位与固件升级——全部翻译。
 
-本 README 也提供：[Русский](README.md) · [English](README.en.md) · [Español](README.es.md)。
+本 README 也提供：[English](README.md) · [Русский](README.ru.md) · [Español](README.es.md)。
 固件本地化只是 [`src/main.cpp`](src/main.cpp) 开头的一张字典表——新增语言是最简单的贡献方式。
 
 ## ✨ 功能特性
@@ -113,7 +113,7 @@
 ## 🧩 兼容性
 
 已在 **SD PRO**（两个引脚版本）与 NodeMCU + ST7789 上验证；
-电气兼容 [GeekMagic SmallTV / SmallTV-Ultra](https://github.com/GeekMagicClock/smalltv-ultra) 系列。
+电气兼容 GeekMagic SmallTV / SmallTV-Ultra 系列。
 
 > ⚠️ **SmallTV-Pro（ESP32）不兼容。** 首次刷机需要 USB-UART，之后支持 OTA。完整设备列表与步骤见
 > [docs/INSTALL.md](docs/INSTALL.md)。
@@ -157,11 +157,6 @@ pio run -e sdpro        # 或 sdpro_alt 用于另一硬件版本
 [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md)。
 本地化是最好的入门贡献：整个界面字典就是 `src/main.cpp` 开头的一张表。
 
-## ⭐ 相关项目
-
-- [Times-Z/GeekMagic-Open-Firmware](https://github.com/Times-Z/GeekMagic-Open-Firmware) —— 面向 GeekMagic / HelloCubic 的 GPLv3 开源固件
-- [aydarik/geekmagic-tv-esp8266](https://github.com/aydarik/geekmagic-tv-esp8266) —— GeekMagic SmallTV 的 MIT 许可 ESP8266 固件
-- [GeekMagicClock/smalltv-ultra](https://github.com/GeekMagicClock/smalltv-ultra) —— 官方 Ultra 固件与手册
 
 ## 📜 许可证
 
