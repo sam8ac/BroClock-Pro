@@ -187,4 +187,4 @@ tabla al inicio de `src/main.cpp`.
 
 ---
 
-*Palabras clave: smalltv · geekmagic · GeekMagicClock · SmallTV-Ultra · ESP8266 · ST7789 · reloj retro · crypto ticker · estación meteorológica · PlatformIO · SD PRO · Arduino*
+*Palabras clave: smalltv · geekmagic · SmallTV-Ultra · ESP8266 · ST7789 · reloj retro · crypto ticker · estación meteorológica · PlatformIO · SD PRO · Arduino*

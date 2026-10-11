@@ -164,4 +164,4 @@ pio run -e sdpro        # 或 sdpro_alt 用于另一硬件版本
 
 ---
 
-*关键词：smalltv · geekmagic · GeekMagicClock · SmallTV-Ultra · ESP8266 · ST7789 · 复古时钟 · 加密货币行情 · 天气站 · PlatformIO · SD PRO · Arduino*
+*关键词：smalltv · geekmagic · SmallTV-Ultra · ESP8266 · ST7789 · 复古时钟 · 加密货币行情 · 天气站 · PlatformIO · SD PRO · Arduino*

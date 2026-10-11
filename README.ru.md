@@ -184,4 +184,4 @@ Issues и PR приветствуются — чек-лист в
 
 ---
 
-*Поисковые теги / keywords: smalltv · geekmagic · GeekMagicClock · SmallTV-Ultra · ESP8266 · ST7789 · retro clock · crypto ticker · weather station · PlatformIO · SD PRO · Arduino*
+*Поисковые теги / keywords: smalltv · geekmagic · SmallTV-Ultra · ESP8266 · ST7789 · retro clock · crypto ticker · weather station · PlatformIO · SD PRO · Arduino*
