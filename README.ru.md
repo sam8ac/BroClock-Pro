@@ -11,10 +11,10 @@
 
 **Язык страницы:** [English](README.md) · **Русский** · [Español](README.es.md) · [中文](README.zh.md)
 
-**BroClock Pro** — open-source прошивка ESP8266 для ретро-часов семейства
-**GeekMagic SmallTV / SmallTV-Ultra** (включая плату SD PRO): настольные часы
-с криптовалютой и погодой, 8 тем, свечные графики, карусель, праздники, OTA
-и веб-интерфейс на **4 языках**.
+**BroClock Pro** — open-source прошивка ESP8266 для семейства
+**GeekMagic Clock** (GeekMagic SmallTV, SmallTV-Ultra, платы SD PRO):
+настольные часы с криптовалютой и погодой, 8 тем, свечные графики,
+карусель, праздники, OTA и веб-интерфейс на **4 языках**.
 
 > 🌐 **Наша гордость — полностью локализованный интерфейс на 4 языках:
 > русский · English · Español · 中文.**
@@ -27,8 +27,8 @@
 
 ---
 
-Превратите $20 настольные часы в форме телевизора из безделушки в настоящее
-информационное устройство: **цены биткоина и альткоинов с графиками на 48
+Превратите $20 **GeekMagic Clock** (SmallTV / SmallTV-Ultra) из безделушки
+в настоящее информационное устройство: **цены биткоина и альткоинов с графиками на 48
 периодов, живая погода на любом языке, 8 переключаемых тем интерфейса,
 календари праздников, ночная подсветка и полное управление с браузера
 телефона** — всё на стоковом ESP8266 (ESP-12E) и экране ST7789 240×240.
@@ -184,4 +184,4 @@ Issues и PR приветствуются — чек-лист в
 
 ---
 
-*Поисковые теги / keywords: smalltv · geekmagic · SmallTV-Ultra · ESP8266 · ST7789 · retro clock · crypto ticker · weather station · PlatformIO · SD PRO · Arduino*
+*Поисковые теги / keywords: GeekMagic Clock · прошивка GeekMagic Clock · GeekMagic SmallTV · SmallTV · SmallTV-Ultra · GeekMagic · SD PRO · ESP8266 · ST7789 · RetroClock · крипто-тикер · погодная станция · PlatformIO · Arduino · GeekMagic Clock кастомная прошивка · SmallTV крипто-погодные часы*

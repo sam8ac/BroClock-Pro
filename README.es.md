@@ -64,6 +64,17 @@ Este README también está en: [English](README.md) · [Русский](README.r
 La localización del firmware es una sola tabla de diccionario al inicio de
 [`src/main.cpp`](src/main.cpp) — añadir un idioma es la contribución más fácil.
 
+## 🕰 ¿Qué es el GeekMagic Clock?
+
+El **GeekMagic Clock** (vendido como GeekMagic SmallTV, SmallTV-Ultra
+y placas SD PRO similares) es un gadget de escritorio barato (~$20)
+con forma de televisor, **ESP8266** (ESP-12E) y pantalla **ST7789
+240×240**. **BroClock Pro** reemplaza el firmware de fábrica: precios
+de cripto, clima en vivo, 8 temas, gráficos de velas y panel web.
+
+¿Buscas **firmware para GeekMagic Clock** o **SmallTV custom firmware**?
+Estás en el lugar correcto.
+
 ## ✨ Características
 
 ### 💰 Criptomonedas
@@ -187,4 +198,4 @@ tabla al inicio de `src/main.cpp`.
 
 ---
 
-*Palabras clave: smalltv · geekmagic · SmallTV-Ultra · ESP8266 · ST7789 · reloj retro · crypto ticker · estación meteorológica · PlatformIO · SD PRO · Arduino*
+*Palabras clave: GeekMagic Clock · firmware GeekMagic Clock · GeekMagic SmallTV · SmallTV · SmallTV-Ultra · GeekMagic · SD PRO · ESP8266 · ST7789 · reloj retro · crypto ticker · estación meteorológica · PlatformIO · Arduino*

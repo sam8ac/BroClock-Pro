@@ -11,7 +11,7 @@
 
 **页面语言：** [English](README.md) · [Русский](README.ru.md) · [Español](README.es.md) · **中文**
 
-**BroClock Pro**是运行在 **GeekMagic SmallTV / SmallTV-Ultra** 系列（含 SD PRO 板卡）桌面上的复古电视造型时钟的开源 ESP8266 固件：加密货币行情 + 天气、8 套主题、K 线图、轮播、节假日日历、OTA 升级，以及 **4 种语言**的网页管理界面。
+**BroClock Pro** 是 **GeekMagic Clock** 系列（GeekMagic SmallTV、SmallTV-Ultra、SD PRO 板卡）复古电视造型桌面时钟的开源 ESP8266 固件：加密货币行情 + 天气、8 套主题、K 线图、轮播、节假日日历、OTA 升级，以及 **4 种语言**的网页管理界面。
 
 > 🌐 **核心亮点——界面完整本地化为 4 种语言：英语 · 俄语 · 西班牙语 · 中文。**
 > 不只是菜单：状态、错误、警告、WiFi 扫描提示、照片上传与固件升级消息——全部翻译。在网页中一键切换，即时生效、无需刷新；选择保存在设备中，与屏幕语言同步，100% 离线可用。
@@ -43,6 +43,15 @@
 
 本 README 也提供：[English](README.md) · [Русский](README.ru.md) · [Español](README.es.md)。
 固件本地化只是 [`src/main.cpp`](src/main.cpp) 开头的一张字典表——新增语言是最简单的贡献方式。
+
+## 🕰 什么是 GeekMagic Clock？
+
+**GeekMagic Clock**（也叫 GeekMagic SmallTV、SmallTV-Ultra 和 SD PRO 板）
+是一款约 $20 的迷你电视造型桌面时钟，搭载 **ESP8266** (ESP-12E) 和
+**ST7789 240×240** 屏幕。**BroClock Pro** 完全替换其原厂固件：加密货币
+行情、实时天气、8 套主题、K线图和完整 Web 面板。
+
+在找 **GeekMagic Clock 固件** 或 **SmallTV 自定义固件**？就是这里。
 
 ## ✨ 功能特性
 
@@ -164,4 +173,4 @@ pio run -e sdpro        # 或 sdpro_alt 用于另一硬件版本
 
 ---
 
-*关键词：smalltv · geekmagic · SmallTV-Ultra · ESP8266 · ST7789 · 复古时钟 · 加密货币行情 · 天气站 · PlatformIO · SD PRO · Arduino*
+*关键词：GeekMagic Clock · GeekMagic Clock 固件 · GeekMagic SmallTV · SmallTV · SmallTV-Ultra · GeekMagic · SD PRO · ESP8266 · ST7789 · 复古时钟 · 加密货币行情 · 天气站 · PlatformIO · Arduino*

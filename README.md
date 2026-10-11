@@ -11,10 +11,10 @@
 
 **Page language:** **English** · [Русский](README.ru.md) · [Español](README.es.md) · [中文](README.zh.md)
 
-**BroClock Pro** — open-source ESP8266 firmware for
-**GeekMagic SmallTV / SmallTV-Ultra**-class retro clocks (incl. the SD PRO
-board): crypto & weather desk clock with 8 themes, candlestick charts,
-carousel, holidays, OTA and a **4-language** web UI.
+**BroClock Pro** — open-source ESP8266 firmware for the
+**GeekMagic Clock** family: GeekMagic SmallTV, SmallTV-Ultra and SD PRO
+retro TV-shaped desk clocks. Crypto & weather desk clock with 8 themes,
+candlestick charts, carousel, holidays, OTA and a **4-language** web UI.
 
 > 🌐 **Our signature feature — a fully localized interface in 4 languages:
 > English · Russian · Spanish · Chinese.**
@@ -27,8 +27,8 @@ carousel, holidays, OTA and a **4-language** web UI.
 
 ---
 
-Turn the $20 TV-shaped desk clock from a wallpaper gadget into a real
-information device: **Bitcoin & altcoin prices with 48-period charts, live
+Turn the $20 **GeekMagic Clock** (SmallTV / SmallTV-Ultra) from a
+wallpaper gadget into a real information device: **Bitcoin & altcoin prices with 48-period charts, live
 weather in any language, 8 switchable UI themes, holiday calendars,
 night-mode backlight and full control from a phone browser** — all on the
 stock ESP8266 (ESP-12E) and ST7789 240×240 display. No cloud, no account, MIT
@@ -62,6 +62,19 @@ translated.
 This README is also available in: [Русский](README.ru.md) · [Español](README.es.md) · [中文](README.zh.md).
 Firmware localization is a single dictionary table at the top of
 [`src/main.cpp`](src/main.cpp) — adding a language is the easiest contribution.
+
+## 🕰 What is the GeekMagic Clock?
+
+The **GeekMagic Clock** (sold as GeekMagic SmallTV, SmallTV-Ultra and
+similar SD PRO boards) is a cheap ~$20 TV-shaped desk gadget with an
+**ESP8266** (ESP-12E) and a **ST7789 240×240** IPS display. Out of the
+box it runs a limited stock firmware. **BroClock Pro** replaces it
+entirely: crypto prices, live weather, 8 UI themes, candlestick
+charts, holiday calendar and a full web panel — all MIT-licensed and
+offline-capable.
+
+Searching for **GeekMagic Clock firmware**, **SmallTV custom firmware**
+or **GeekMagic SmallTV crypto**? You are in the right place.
 
 ## ✨ Features
 
@@ -183,4 +196,4 @@ the top of `src/main.cpp`.
 
 ---
 
-*Keywords: smalltv · geekmagic · SmallTV-Ultra · ESP8266 · ST7789 · retro clock · crypto ticker · weather station · PlatformIO · SD PRO · Arduino*
+*Keywords: GeekMagic Clock · GeekMagic Clock firmware · GeekMagic SmallTV · SmallTV · SmallTV-Ultra · GeekMagic · SD PRO · ESP8266 · ST7789 · retro clock · crypto ticker · weather station · PlatformIO · Arduino · GeekMagic clock custom firmware · SmallTV crypto weather clock*
