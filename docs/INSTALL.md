@@ -48,7 +48,7 @@
 > Узнать плату: откройте корпус — крупная надпись на чипе; либо залейте
 > стоковую прошивку GeekMagic и посмотрите лог.
 
-Если у вас «необычные» часы — не начинайте с `SDP_firmware.bin`: соберите из
+Если у вас «необычные» часы — не начинайте с `BroClock_Pro_firmware.bin`: соберите из
 исходников своим `[env]` в `platformio.ini` (пины и частота SPI там же).
 
 ## Что понадобится
@@ -58,7 +58,7 @@
 | Аппаратно | USB-UART адаптер на **CH340/CP2102/FT230X** 3.3 В (5 В tolerant у CH340) + 4 провода «мама-мама» **или** штатный программатор часов |
 | Софт | [Python 3.8+](https://python.org) + `esptool` (ставить не нужно — команды ниже ставят сами) |
 | Драйвер | CH340/CP2102 драйвер (Windows ставит обычно сам; иначе — WCH/Silicon Labs) |
-| Файлы | `SDP_firmware.bin` из последнего релиза (⚠️ **не переименовывайте** — внутри отпечаток сборки) |
+| Файлы | `BroClock_Pro_firmware.bin` из последнего релиза (⚠️ **не переименовывайте** — внутри отпечаток сборки) |
 | Время | 15 минут на первый раз, 1 минута на повторный |
 
 Подключение адаптера к часам:
@@ -98,7 +98,7 @@ python -m esptool --port COM5 write-flash 0x0 backup-stock.bin
 ### Windows одной кнопкой (`flash_broclock.bat`)
 
 В релизе лежит `tools\flash_broclock.bat`. Положите его в одну папку с
-`SDP_firmware.bin` и запустите двойным кликом:
+`BroClock_Pro_firmware.bin` (и при желании `BroClock_Pro_factory.bin`) и запустите двойным кликом:
 
 ```
 flash_broclock.bat
@@ -115,10 +115,10 @@ COMPLETED SUCCESSFULLY». Если файл скачан повторно — б
 python -m pip install esptool
 
 # Windows
-python -m esptool --port COM5 --baud 460800 write-flash 0x0 SDP_firmware.bin
+python -m esptool --port COM5 --baud 460800 write-flash 0x0 BroClock_Pro_firmware.bin
 
 # Linux / macOS
-python -m esptool --port /dev/ttyUSB0 --baud 460800 write-flash 0x0 SDP_firmware.bin
+python -m esptool --port /dev/ttyUSB0 --baud 460800 write-flash 0x0 BroClock_Pro_firmware.bin
 ```
 
 Ожидаемый финал вывода:
@@ -137,7 +137,7 @@ Hard resetting via RTS pin...
 
 Если ставить Python не хочется: откройте в Chrome/Edge
 <https://web.esphome.io> → **Connect** → выберите порт → **Install** →
-**Choose file** → `SDP_firmware.bin` → Install. Работает через WebSerial,
+**Choose file** → `BroClock_Pro_firmware.bin` → Install. Работает через WebSerial,
 драйвер CH340 всё равно нужен. Это ровно тот же процесс, что и esptool.
 
 ## 3. Первый запуск: подключение к Wi-Fi

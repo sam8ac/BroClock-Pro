@@ -4,13 +4,15 @@ Ready-to-flash images for **BroClock Pro** (GeekMagic Clock / SmallTV / SmallTV-
 
 | File | What it is | When to use |
 |---|---|---|
-| `SDP_firmware.bin` | **Application image** (same as the GitHub Release asset) | Normal install: flash at `0x0`, or upload via the web UI **Firmware** tab |
+| `BroClock_Pro_firmware.bin` | **Application image** (same as the GitHub Release asset) | Normal install / update: flash at `0x0`, or upload via the web UI **Firmware** tab |
 | `BroClock_Pro_factory.bin` | **Full factory image** (4 MB, app + filesystem + blank config) | Complete restore / first flash of a blank board |
+
+The ready-to-flash `.bin` files are attached to the **[latest Release](https://github.com/sam8ac/BroClock-Pro/releases)** (not committed to git, to keep the repo light). Download them from there.
 
 ## Flash
 
 ```bash
-python -m esptool --port COM5 --baud 460800 write-flash 0x0 SDP_firmware.bin
+python -m esptool --port COM5 --baud 460800 write-flash 0x0 BroClock_Pro_firmware.bin
 ```
 
 On Windows you can double-click `tools\flash_broclock.bat` next to the `.bin` — it finds the CH340, flashes and verifies the hash.

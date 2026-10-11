@@ -153,8 +153,8 @@ compatible with the GeekMagic SmallTV / SmallTV-Ultra family.
 ## 🚀 Quick start
 
 ```bash
-# 1. download SDP_firmware.bin from Releases and flash
-python -m esptool --port COM5 --baud 460800 write-flash 0x0 SDP_firmware.bin
+# 1. download BroClock_Pro_firmware.bin from Releases and flash
+python -m esptool --port COM5 --baud 460800 write-flash 0x0 BroClock_Pro_firmware.bin
 
 # 2. connect to the BroClock-PRO access point, open http://192.168.4.1
 # 3. pick your Wi-Fi network — the clock is on the LAN, IP on screen

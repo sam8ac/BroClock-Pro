@@ -140,8 +140,8 @@
 ## 🚀 Быстрый старт
 
 ```bash
-# 1. скачать SDP_firmware.bin из Releases и прошить
-python -m esptool --port COM5 --baud 460800 write-flash 0x0 SDP_firmware.bin
+# 1. скачать BroClock_Pro_firmware.bin из Releases и прошить
+python -m esptool --port COM5 --baud 460800 write-flash 0x0 BroClock_Pro_firmware.bin
 
 # 2. подключиться к точке BroClock-PRO, открыть http://192.168.4.1
 # 3. выбрать свою Wi-Fi сеть — часы в LAN, IP на экране

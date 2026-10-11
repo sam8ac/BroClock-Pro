@@ -82,7 +82,7 @@ curl "http://DEVICE_IP/api/search?q=syms"      # secondary-market coins
 ## OTA / files
 
 ```bash
-curl -F "file=@SDP_firmware.bin" http://DEVICE_IP/update      # OTA (fingerprint-checked)
+curl -F "file=@BroClock_Pro_firmware.bin" http://DEVICE_IP/update      # OTA (fingerprint-checked)
 curl http://DEVICE_IP/api/fs                                     # filesystem info
 curl -F "file=@icon.png" http://DEVICE_IP/api/iconup            # upload icon
 curl -F "file=@photo.jpg" http://DEVICE_IP/api/pupload          # upload photo theme

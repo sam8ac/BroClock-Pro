@@ -130,8 +130,8 @@
 ## 🚀 快速开始
 
 ```bash
-# 1. 从 Releases 下载 SDP_firmware.bin 并刷入
-python -m esptool --port COM5 --baud 460800 write-flash 0x0 SDP_firmware.bin
+# 1. 从 Releases 下载 BroClock_Pro_firmware.bin 并刷入
+python -m esptool --port COM5 --baud 460800 write-flash 0x0 BroClock_Pro_firmware.bin
 
 # 2. 连接 BroClock-PRO 热点，打开 http://192.168.4.1
 # 3. 选择你的 WiFi 网络 —— 时钟加入局域网，IP 显示在屏幕上

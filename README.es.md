@@ -154,8 +154,8 @@ GeekMagic SmallTV / SmallTV-Ultra.
 ## 🚀 Inicio rápido
 
 ```bash
-# 1. descarga SDP_firmware.bin de Releases y flashea
-python -m esptool --port COM5 --baud 460800 write-flash 0x0 SDP_firmware.bin
+# 1. descarga BroClock_Pro_firmware.bin de Releases y flashea
+python -m esptool --port COM5 --baud 460800 write-flash 0x0 BroClock_Pro_firmware.bin
 
 # 2. conéctate al punto BroClock-PRO, abre http://192.168.4.1
 # 3. elige tu red Wi-Fi — el reloj queda en la LAN, IP en pantalla
