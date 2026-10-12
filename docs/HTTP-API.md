@@ -13,6 +13,7 @@ curl http://DEVICE_IP/api/status
 
 Returns JSON with the live state: `city`, `wprov` (weather source),
 `tunit` (temperature display unit, `0` = °C, `1` = °F),
+`fw` (firmware version and build date, e.g. `v1.0.1 (Oct 12 2026)`),
 `wifi{}`, `themes[]` (on/off + current), `carousel`, `interval`, `tfmt`,
 `lang`, `bright`, `nmode`, `nfrom`, `nto`, `nbr`, `bgcolor`, `hol`,
 `hctry`, `market{}`, `quotes[]`, chart state, heap/RAM counters, `err`.

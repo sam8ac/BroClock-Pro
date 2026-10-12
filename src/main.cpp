@@ -2,6 +2,9 @@
 // Themes: Clock + Crypto ticker (price, change, candle/line chart)
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
+// firmware version: shown on the web Firmware page and in /api/status "fw"
+#define FW_VERSION "v1.0.1"
+
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
@@ -4675,6 +4678,7 @@ var T={
 'Темы':['Themes','Temas','主题'],'Турция':['Turkey','Turquía','土耳其'],
 'Тёмно-серый':['Dark grey','Gris oscuro','深灰色'],'Удалить':['Delete','Eliminar','删除'],
 'Указать id вручную':['Enter id manually','Escribir el id a mano','手动输入 id'],
+'Установлена прошивка:':['Installed firmware:','Firmware instalada:','已安装固件：'],
 'Украина':['Ukraine','Ucrania','乌克兰'],
 'Файл прошивки .bin':['Firmware file .bin','Archivo de firmware .bin','固件文件 .bin'],
 'Финляндия':['Finland','Finlandia','芬兰'],'Формат часов':['Time format','Formato de hora','时间格式'],
@@ -5009,6 +5013,7 @@ function applySettings(s){
   setVal('langsel', s.lang||'en', 1);
   setVal('wprovsel', s.wprov||'ometo', 1);
   setVal('tunitsel', String(s.tunit||0), 1);
+  var fv=document.getElementById('fwv');if(fv&&s.fw)fv.textContent=s.fw;
   var ow=document.getElementById('owmkw');
   if(ow)ow.hidden=(s.wprov||'ometo')!=='owm';
   var oi=document.getElementById('owmk');
@@ -5635,6 +5640,7 @@ document.addEventListener('DOMContentLoaded',function(){
 </div>
 </div>
 <div class="c sec" id=sec_fw hidden><h2>Прошивка</h2>
+<div class=dim><span id=fwl>Установлена прошивка:</span> <span id=fwv>…</span></div>
 <div class=dim>Загрузка .bin прошивки по воздуху. Конфигурация и данные не трогаются. Принимаются только образы этой сборки — в файле ищется отпечаток (чип, flash, пины дисплея); чужая прошивка отклоняется без записи, старая продолжит работать.</div>
 <label>Файл прошивки .bin</label><input type=file id=fw accept=".bin">
 <div class=bar><i id=fwpb></i></div>
@@ -6070,6 +6076,7 @@ static void handleStatus(){
   out += "\",\"owmk\":";  out += cfg.owmKey.length() ? "1" : "0";
   out += ",\"cgk\":";   out += cfg.cgKey.length()  ? "1" : "0";
   out += ",\"tunit\":"; out += String(cfg.tunit);
+  out += ",\"fw\":\"" FW_VERSION " (" __DATE__ ")\"";
   out += ",\"pf\":";
   if(phKind == 1){
     out += "{\"k\":\"jpg\",\"w\":"; out += String(phW);
