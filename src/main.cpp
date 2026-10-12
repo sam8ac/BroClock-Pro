@@ -81,6 +81,7 @@ struct Cfg {
   String wprov = "ometo";  // weather source: "owm" | "ometo" (ometo needs no key)
   String owmKey;           // OpenWeatherMap API key, user-entered ("" = none)
   String cgKey;            // optional CoinGecko Demo API key ("" = free public)
+  uint8_t tunit = 0;       // temperature unit: 0 = Celsius, 1 = Fahrenheit (display)
 } cfg;
 
 // 0 = ru, 1 = en, 2 = es, 3 = zh
@@ -103,6 +104,11 @@ static inline const char* pickLangL(const char* r, const char* e,
                                     const char* s, const char* z){
   switch(langIdx()){ case 1: return e; case 2: return s; case 3: return z; default: return r; }
 }
+
+// temperature display unit: fetched/cached weather stays metric, tDisp() converts
+// at render time (cfg.tunit: 0 = C, 1 = F)
+static inline float tDisp(float c){ return cfg.tunit == 1 ? c * 9.0f / 5.0f + 32.0f : c; }
+static inline const char* tUnitL(){ return cfg.tunit == 1 ? "F" : "C"; }
 // weather/geocoder API language suffix for the selected language ("" for EN)
 static inline const char* langQ(){
   if(cfg.lang == "ru") return "&lang=ru";
@@ -2822,6 +2828,7 @@ static void saveCfg(){
   d["wprov"] = cfg.wprov;
   d["owmkey"] = cfg.owmKey;
   d["cgkey"] = cfg.cgKey;
+  d["tunit"] = cfg.tunit;
   File f = LittleFS.open("/config.json", "w");
   if(!f) return;
   serializeJson(d, f);
@@ -2904,6 +2911,7 @@ static void loadCfg(){
   }
   if(d["owmkey"].is<const char*>()) cfg.owmKey = d["owmkey"].as<String>();
   if(d["cgkey"].is<const char*>())  cfg.cgKey  = d["cgkey"].as<String>();
+  if(d["tunit"].is<int>())          cfg.tunit = (d["tunit"].as<int>() == 1) ? 1 : 0;
   // legacy configs: an old default of "owm" without any user key cannot
   // work on a keyless build -> fall back to Open-Meteo
   if(cfg.wprov == "owm" && !cfg.owmKey.length()) cfg.wprov = "ometo";
@@ -2947,7 +2955,7 @@ static void clRing(int cx, int cy, int r, uint16_t col){
   if(r > 1) tft.drawCircle(cx, cy, r - 1, col);
 }
 
-// draws <num> + degree ring + "C", returns the width used
+// draws <num> + degree ring + unit letter (C/F), returns the width used
 static int clTempLine(int x, int y, const String& num, uint16_t col, int font){
   tft.setTextDatum(TL_DATUM);
   tft.setTextColor(col, C_BG);
@@ -2955,7 +2963,7 @@ static int clTempLine(int x, int y, const String& num, uint16_t col, int font){
   int w = tft.textWidth(num, font);
   int r = (font == 2) ? 4 : 5;
   clRing(x + w + r + 3, y + (font == 2 ? 5 : 7), r, col);
-  tft.drawString("C", x + w + 2 * r + 8, y, font);
+  tft.drawString(tUnitL(), x + w + 2 * r + 8, y, font);
   return w + 2 * r + 24;
 }
 
@@ -3101,8 +3109,8 @@ static void clsDrawMetric(int x, int y){
   int k = (int)((millis() / 5000UL) % 5);
   if(gfxFont()){
     String s;
-    if(k == 0)      s = String(LG("Макс ", "Max ", "Máx ", "最高 ")) + String((int)lroundf(wxTmax)) + "°";
-    else if(k == 1) s = String(LG("Мин ", "Min ", "Mín ", "最低 ")) + String((int)lroundf(wxTmin)) + "°";
+    if(k == 0)      s = String(LG("Макс ", "Max ", "Máx ", "最高 ")) + String((int)lroundf(tDisp(wxTmax))) + "°";
+    else if(k == 1) s = String(LG("Мин ", "Min ", "Mín ", "最低 ")) + String((int)lroundf(tDisp(wxTmin))) + "°";
     else if(k == 2) s = String(LG("Д ", "P ", "P ", "气压 ")) + String((int)wxPress) + LG(" гПа", " hPa", " hPa", " hPa");
     else if(k == 3) s = String(LG("Ветер ", "Wind ", "Viento ", "风 ")) + String((int)wxWind) + LG(" км/ч", " km/h", " km/h", " km/h");
     else            s = String(LG("Облачность ", "Cloud ", "Nubes ", "云量 ")) + String(wxCloudPct) + "%";
@@ -3110,8 +3118,8 @@ static void clsDrawMetric(int x, int y){
     return;
   }
   tft.setTextColor(C_WHITE, C_BG);
-  if(k == 0)      clTempLine(x, y, String("Max Temp ") + String((int)lroundf(wxTmax)), C_WHITE, 2);
-  else if(k == 1) clTempLine(x, y, String("Min Temp ") + String((int)lroundf(wxTmin)), C_WHITE, 2);
+  if(k == 0)      clTempLine(x, y, String("Max Temp ") + String((int)lroundf(tDisp(wxTmax))), C_WHITE, 2);
+  else if(k == 1) clTempLine(x, y, String("Min Temp ") + String((int)lroundf(tDisp(wxTmin))), C_WHITE, 2);
   else if(k == 2) tft.drawString(String("P ") + String((int)wxPress) + " hPa", x, y, 2);
   else if(k == 3) tft.drawString(String("Wind ") + String((int)wxWind) + " km/h", x, y, 2);
   else            tft.drawString(String("Cloud: ") + String(wxCloudPct) + " %", x, y, 2);
@@ -3272,7 +3280,7 @@ static void clChart(bool force){
   static uint32_t lastClKey = 0xFFFFFFFFUL;
   struct tm ti;
   bool tok = timeOk(ti);
-  uint32_t k = (wxShowOk() ? 1 : 0) ^ (uint32_t)(int)wxTemp ^
+  uint32_t k = (wxShowOk() ? 1 : 0) ^ (uint32_t)(int)wxTemp ^ (uint32_t)cfg.tunit ^
                ((uint32_t)(int)wxHum << 8) ^ (uint32_t)langIdx() ^
                (uint32_t)wxErr.length();
   if(tok) k = k * 31 + (uint32_t)ti.tm_wday + ((uint32_t)ti.tm_mday << 4)
@@ -3288,7 +3296,7 @@ static void clChart(bool force){
   const WxJpg* hu30 = wxJpgFind(WX_BIG, WX_BIG_N, "humidity");
   drawWxJpg30(ti30, 3, 131);
   clBar(36, 141, 40, 12, true);
-  if(wxShowOk()) clTempLine(80, 138, String((int)lroundf(wxTemp)), C_WHITE, 2);
+  if(wxShowOk()) clTempLine(80, 138, String((int)lroundf(tDisp(wxTemp))), C_WHITE, 2);
   else { tft.setTextColor(C_DIM, C_BG); tft.drawString("--", 80, 138, 2); }
 
   drawWxJpg30(hu30, 128, 131);
@@ -4064,7 +4072,7 @@ static void drawWeather(uint8_t m){
   // periodic jerk on this theme).  Same guard the calendar theme has:
   // skip when nothing this panel draws has changed.
   static uint32_t lastWxKey = 0xFFFFFFFFUL;
-  uint32_t k = (uint32_t)wxCode ^ (uint32_t)(int)(wxTemp * 10) ^
+  uint32_t k = (uint32_t)wxCode ^ (uint32_t)(int)(wxTemp * 10) ^ (uint32_t)cfg.tunit ^
                ((uint32_t)(int)wxHum << 8) ^ (uint32_t)(int)wxWind ^
                (uint32_t)(int)wxFeels ^ (uint32_t)fcn ^ (wxOk ? 1 : 0) ^
                (uint32_t)langIdx() ^ (uint32_t)wxCity.length();
@@ -4081,7 +4089,7 @@ static void drawWeather(uint8_t m){
     if(wxShowOk()){
       float tN = (fcn > 0) ? fcd[0].lo : wxTmin;
       float tD = (fcn > 0) ? fcd[0].hi : wxTmax;
-      String a = signedT(tN) + "`", b = signedT(tD) + "`";
+      String a = signedT(tDisp(tN)) + "`", b = signedT(tDisp(tD)) + "`";
       const char* l1 = LG("ночь ", "night ", "noche ", "夜 ");
       const char* l2 = LG("день ", "day ", "día ", "白天 ");
       int w1 = txtW(l1, 16), w2 = txtW(l2, 16);
@@ -4099,9 +4107,10 @@ static void drawWeather(uint8_t m){
     tft.setTextDatum(MC_DATUM);
     if(wxShowOk()){
       // main centre temperature coloured by sign: >0 red, ==0 white, <0 cyan
-      uint16_t tc = wxTemp > 0 ? C_DOWN : (wxTemp < 0 ? C_CYAN : C_WHITE);
+      float tw = tDisp(wxTemp);
+      uint16_t tc = tw > 0 ? C_DOWN : (tw < 0 ? C_CYAN : C_WHITE);
       tft.setTextColor(tc, C_BG);
-      String s = signedT(wxTemp);
+      String s = signedT(tw);
       tft.drawString(s, 120, 92, 7);
       int w = tft.textWidth(s, 7);
       tft.drawCircle(120 + w / 2 + 9, 92 - 17, 6, tc);
@@ -4132,7 +4141,7 @@ static void drawWeather(uint8_t m){
       const WxJpg* hu30 = wxJpgFind(WX_BIG, WX_BIG_N, "humidity");
       drawWxJpg30(ti30, 84, 175);
       drawWxJpg30(hu30, 84, 209);
-      tft.setTextColor(C_TXT, C_BG);  tft.drawString(signedT(wxFeels), 118, 190, 2);
+      tft.setTextColor(C_TXT, C_BG);  tft.drawString(signedT(tDisp(wxFeels)), 118, 190, 2);
       tft.setTextColor(C_TXT, C_BG);  tft.drawString(String((int)wxHum) + "%", 118, 218, 2);
       tft.setTextColor(C_TXT, C_BG);
       if(gfxFont())
@@ -4157,7 +4166,7 @@ static void drawForecast(uint8_t m){
   if(m & RM_FULL) m |= RM_HEAD | RM_PRICE | RM_CHART | RM_FOOT;
   // same identical-repaint guard as drawWeather
   static uint32_t lastFcKey = 0xFFFFFFFFUL;
-  uint32_t k = (uint32_t)fcn ^ (wxOk ? 1 : 0) ^ (uint32_t)langIdx() ^
+  uint32_t k = (uint32_t)fcn ^ (wxOk ? 1 : 0) ^ (uint32_t)langIdx() ^ (uint32_t)cfg.tunit ^
                (uint32_t)wxCity.length();
   for(int i = 0; i < fcn && i < 5; i++)
     k = k * 31 + (uint32_t)(int)(fcd[i].hi * 10) + ((uint32_t)(int)(fcd[i].lo * 10) << 8)
@@ -4195,7 +4204,7 @@ static void drawForecast(uint8_t m){
       drawWxIcon(116, cy, 15, b.code);
       tft.setTextDatum(MR_DATUM);
       tft.setTextColor(C_TXT, C_BG);
-      tft.drawString(signedT(b.hi) + "/" + signedT(b.lo), 234, cy, 4);
+      tft.drawString(signedT(tDisp(b.hi)) + "/" + signedT(tDisp(b.lo)), 234, cy, 4);
       tft.setTextDatum(ML_DATUM);
     }
     tft.drawFastHLine(8, 54 + fcn * 36, 224, C_BORDER);
@@ -4616,6 +4625,8 @@ var T={
 'Интервал карусели, сек':['Carousel interval, sec','Intervalo del carrusel, seg','轮播间隔，秒'],
 'Ирландия':['Ireland','Irlanda','爱尔兰'],'Исландия':['Iceland','Islandia','冰岛'],
 'Испания':['Spain','España','西班牙'],'Источник данных':['Data source','Fuente de datos','数据源'],
+'Единицы температуры':['Temperature units','Unidades de temperatura','温度单位'],
+'Цельсий (°C)':['Celsius (°C)','Celsius (°C)','摄氏度 (°C)'],'Фаренгейт (°F)':['Fahrenheit (°F)','Fahrenheit (°F)','华氏度 (°F)'],
 'Италия':['Italy','Italia','意大利'],'Казахстан':['Kazakhstan','Kazajistán','哈萨克斯坦'],
 'Календарь':['Calendar','Calendario','日历'],'Календарь: государственные праздники':['Calendar: public holidays','Calendario: festivos públicos','日历：法定假日'],
 'Канада':['Canada','Canadá','加拿大'],
@@ -4997,6 +5008,7 @@ function applySettings(s){
   setVal('tfmt', s.tfmt||'24', 1);
   setVal('langsel', s.lang||'en', 1);
   setVal('wprovsel', s.wprov||'ometo', 1);
+  setVal('tunitsel', String(s.tunit||0), 1);
   var ow=document.getElementById('owmkw');
   if(ow)ow.hidden=(s.wprov||'ometo')!=='owm';
   var oi=document.getElementById('owmk');
@@ -5601,6 +5613,11 @@ document.addEventListener('DOMContentLoaded',function(){
 <div class=pwr><input id=owmk type=password placeholder="пусто — оставить текущий" autocomplete=off onchange="if(this.value)set('owmkey',this.value)"><button type=button class=eye onclick="pwTog('owmk',this)" aria-label="Показать ключ"><svg viewBox="0 0 24 24" width="19" height="19"><path d="M12 5.5C5.7 5.5 2.2 12 2.2 12S5.7 18.5 12 18.5 21.8 12 21.8 12 18.3 5.5 12 5.5z" fill="none" stroke="#8ab" stroke-width="1.8"/><circle cx="12" cy="12" r="3.1" fill="none" stroke="#8ab" stroke-width="1.8"/></svg></button></div>
 <div class=dim>Нужен только для OpenWeatherMap: бесплатный ключ на openweathermap.org/api. Пустое поле ничего не меняет. При переключении на Open-Meteo ключ стирается. Прошивка не содержит ключей.</div>
 </div>
+<label>Единицы температуры</label>
+<select id=tunitsel onchange="set('tunit',this.value)">
+<option value=0>Цельсий (°C)</option>
+<option value=1>Фаренгейт (°F)</option>
+</select>
 <button onclick="doRefresh(this)">Обновить погоду сейчас</button>
 <div class=dim id=wxmsg style="margin-top:2px"></div>
 <div class=dim>Погода обновляется автоматически каждые 10 минут.</div>
@@ -6052,6 +6069,7 @@ static void handleStatus(){
   out += "\",\"wprov\":\"";  out += cfg.wprov;
   out += "\",\"owmk\":";  out += cfg.owmKey.length() ? "1" : "0";
   out += ",\"cgk\":";   out += cfg.cgKey.length()  ? "1" : "0";
+  out += ",\"tunit\":"; out += String(cfg.tunit);
   out += ",\"pf\":";
   if(phKind == 1){
     out += "{\"k\":\"jpg\",\"w\":"; out += String(phW);
@@ -6180,6 +6198,13 @@ static void handleSet(){
     }
     cfg.tfmt = v;
     mark(RM_ALL);                    // repaint every clock face immediately
+  } else if(k == "tunit"){
+    if(v != "0" && v != "1"){
+      server.send(400, "application/json", "{\"error\":\"tunit\"}");
+      return;
+    }
+    cfg.tunit = (v == "1") ? 1 : 0;
+    mark(RM_ALL);                    // repaint every theme in the new unit
   } else if(k == "lang"){
     if(v != "ru" && v != "en" && v != "es" && v != "zh"){
       server.send(400, "application/json", "{\"error\":\"lang\"}");

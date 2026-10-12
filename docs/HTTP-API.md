@@ -12,6 +12,7 @@ curl http://DEVICE_IP/api/status
 ```
 
 Returns JSON with the live state: `city`, `wprov` (weather source),
+`tunit` (temperature display unit, `0` = °C, `1` = °F),
 `wifi{}`, `themes[]` (on/off + current), `carousel`, `interval`, `tfmt`,
 `lang`, `bright`, `nmode`, `nfrom`, `nto`, `nbr`, `bgcolor`, `hol`,
 `hctry`, `market{}`, `quotes[]`, chart state, heap/RAM counters, `err`.
@@ -27,9 +28,9 @@ curl "http://DEVICE_IP/api/set?key=wprov&value=owm"     # owm = OpenWeatherMap, 
 curl "http://DEVICE_IP/api/set?key=city&value="          # empty = "no city" gate
 ```
 
-Keys: `city`, `wprov`, `carousel`, `interval`, `tfmt`, `lang`, `brightness`,
-`nmode`, `nfrom`, `nto`, `nbr`, `bgcolor`, `themes`, `hol`, `hctry`,
-`chart`, `refresh`, `tz`, `pdel`, `sym`, `syms`.
+Keys: `city`, `wprov`, `tunit`, `carousel`, `interval`, `tfmt`, `lang`,
+`brightness`, `nmode`, `nfrom`, `nto`, `nbr`, `bgcolor`, `themes`, `hol`,
+`hctry`, `chart`, `refresh`, `tz`, `pdel`, `sym`, `syms`.
 
 An empty `city` disables the weather fetch (device shows *no city* instead of
 looping on errors). `lang` accepts `en|ru|es|zh` and re-renders the web UI.
