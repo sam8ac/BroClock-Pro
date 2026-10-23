@@ -3,6 +3,23 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.9 - 2026-10-23
+
+TLS gate fixed and failures made diagnosable:
+
+- **Gate measured before the prelude** - v1.0.7/v1.0.8 measured the heap after
+  DNS + `setBufferSizes` (~4k) and blocked every attempt.  The gate now runs
+  before any prelude allocation (9000 free / 8500 largest block).
+- **Failing URL in the log** - `[http] connect fail <path> -> ...` names the
+  endpoint, which showed the price fetch (`/api/v3/simple/price`) timing out
+  while the candle fetch on the same host succeeds.
+- **v1.0.6 + v1.0.7 + v1.0.8 rolled up** (throttling, STA reconnect, gate
+  placement).
+
+Known issue (open): while the web UI keeps TCP sockets open, the fetch-time
+heap sits near the TLS floor and some price handshakes still time out; the
+device retries with back-off and recovers.
+
 ## v1.0.6 - 2026-10-23
 
 Data-reliability pass after a 7-hour soak (log analysis):

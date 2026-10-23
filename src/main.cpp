@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.6"
+#define FW_VERSION "v1.0.9"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -701,6 +701,23 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
     if(!srvSkip) srvOpen();
     return false;
   }
+  // The heap gate must run BEFORE the DNS + setBufferSizes prelude: those`
+  // eat ~4k, so measuring afterwards always read ~9.9k and blocked every`
+  // attempt (v1.0.7 regression).  Entry-level numbers say whether a
+  // handshake has a real chance: after the ~5.6-7.4k prelude the engine
+  // needs another ~7.1k from the biggest block.
+  {
+    uint32_t f0 = ESP.getFreeHeap(), m0 = ESP.getMaxFreeBlockSize();
+    if(f0 < 9000UL || m0 < 8500UL){
+      httpSkip = true;
+      mkErr = "heap low";
+      coolUntil = millis() + 2500UL;
+      lastTlsTry = 0;                   // not a real attempt: let the breaker fire
+      Serial.printf("[http] skip free=%u mfb=%u\n", (unsigned)f0, (unsigned)m0);
+      return false;
+    }
+    Serial.printf("[http] try free=%u mfb=%u\n", (unsigned)f0, (unsigned)m0);
+  }
   if(!srvSkip) srvClose();                 // no accepts while the engine eats the heap
   // pre-resolve DNS with a hard cap: the lookup inside WiFiClient::connect()
   // has its own (much longer) timeout - a dropped router reply blocked
@@ -749,38 +766,6 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
                                            // (also covers DNS resolve + TCP connect)
   http.setReuse(false);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  // A handshake that dies with the engine allocated (OOM-class fail, free
-  // < 4k / ssl -1000) drops mfb below the 12k fetch gate - observed 8664 -
-  // and the gate then blocks every further attempt, so the boot ran stale
-  // ~10 minutes until the breaker rebooted.  end() frees the whole engine;
-  // a retry in place starts from the reshuffled heap and usually connects
-  // (observed: fail 15063ms -> in-place retry 986ms).
-  // Measured on device: the cli+DNS prelude costs ~5.6-7.4k from the biggest
-  // block, so mid-run this sees ~9.1-9.5k free / 6.9-9.2k mfb; a GET succeeded
-  // from free=10.4k/mfb=8.2k while engine+iobufs+TCP ate 7.7-9.8k out of the
-  // biggest block (single-block eat observed: 8832 -> 1704 = 7128).  Below
-  // ~7.4k starting mfb a BearSSL new fails mid-chain - with exceptions off
-  // that is an abort-reboot loop (observed: post-engine remainder < 216B).
-  // BUT the gate must not outrun the healthy baseline: a wedge state sat at
-  // mfb 7664-7856 with free ~10.3k for minutes and 8100 skipped every attempt
-  // until the breaker rebooted (the "mystery reboots").  7550 passes all
-  // observed stuck values while keeping +206B over the abort line at the
-  // floor (transient ~7.0k post-teardown states still skip, now retrying in
-  // 2.5s instead of 6s so they catch the next mfb rebound).
-  {
-    uint32_t f0 = ESP.getFreeHeap(), m0 = ESP.getMaxFreeBlockSize();
-    if(f0 < 9000UL || m0 < 7550UL){
-      httpSkip = true;
-      mkErr = "heap low";
-      coolUntil = millis() + 2500UL;
-      lastTlsTry = 0;                       // not a real attempt: let the breaker fire
-      Serial.printf("[http] skip free=%u mfb=%u\n", (unsigned)f0,
-                    (unsigned)m0);
-      return false;
-    }
-    Serial.printf("[http] try free=%u mfb=%u\n", (unsigned)f0,
-                  (unsigned)m0);
-  }
   uint8_t attempt = 0;
   for(;;){
     if(!http.begin(cli, url)){ mkErr = "begin failed"; return false; }
@@ -798,7 +783,7 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
     String full = HTTPClient::errorToString(code) + " (" + String(code) + ") ssl=" + String(se);
     if(eb[0]) full += " " + String(eb);
     full += " h=" + String(ESP.getFreeHeap()) + "/" + String(ESP.getMaxFreeBlockSize());
-    Serial.printf("[http] connect fail -> %s\n", full.c_str());
+    Serial.printf("[http] connect fail %s -> %s\n", urlPathTail(url).c_str(), full.c_str());
     bool oomish = (se == -1000 || ESP.getFreeHeap() < 4000);
     http.end();
     // HTTPClient::end() skips _client->stop() when the socket never reached
