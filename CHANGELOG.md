@@ -3,6 +3,10 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.10 - 2026-10-23
+
+- **Diagnostic**: the connect-failure log now prints the resolved IP (ip=...), so a blackholed Cloudflare A record is distinguishable from a heap failure.
+
 ## v1.0.9 - 2026-10-23
 
 TLS gate fixed and failures made diagnosable:
@@ -74,10 +78,10 @@ Stability pass - fewer restarts, and (where unavoidable) invisible ones:
 ## v1.0.1 - 2026-10-12
 
 - **Temperature units** - new *Temperature units* setting on the Weather tab:
-  render temperatures in °C or °F. Applies to the Classic, Weather and
+  render temperatures in В°C or В°F. Applies to the Classic, Weather and
   Forecast themes (converted at draw time; cached weather stays metric).
   Stored as `tunit` in config, exposed in `/api/status` and `/api/set`,
-  localized in EN/RU/ES/ZH. Existing configs keep °C (no migration).
+  localized in EN/RU/ES/ZH. Existing configs keep В°C (no migration).
 - **Installed firmware version** - the Firmware tab shows the running
   firmware version and build date; also exposed as `fw` in `/api/status`.
 - Repository: added this CHANGELOG; `docs/HTTP-API.md` documents `tunit`

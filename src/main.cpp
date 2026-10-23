@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.9"
+#define FW_VERSION "v1.0.10"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -405,6 +405,8 @@ static uint32_t lastPhaseMs = 0;
 static int  cdLen = 0;                // OHLC payload diagnostics
 static bool cdChunk = false;
 static String mkErr;
+static String   lastDnsIp;      // last DNS answer, printed when a connect fails
+
 static bool  httpSkip = false; // last attempt was DEFERRED (heap gate / NTP wait),
                                // not a real failure: callers keep the old state
 static String mkErrReal;       // last REAL market-path failure (price/candles/quotes).
@@ -742,8 +744,10 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
         return false;
         }
       }
+      lastDnsIp = dip.toString();
       if(millis() - td > 500)
-        Serial.printf("[dns] %s %lums\n", host.c_str(), (unsigned long)(millis() - td));
+        Serial.printf("[dns] %s %s %lums\n", host.c_str(), lastDnsIp.c_str(),
+                      (unsigned long)(millis() - td));
     }
   }
   cli.setInsecure();
@@ -783,7 +787,8 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
     String full = HTTPClient::errorToString(code) + " (" + String(code) + ") ssl=" + String(se);
     if(eb[0]) full += " " + String(eb);
     full += " h=" + String(ESP.getFreeHeap()) + "/" + String(ESP.getMaxFreeBlockSize());
-    Serial.printf("[http] connect fail %s -> %s\n", urlPathTail(url).c_str(), full.c_str());
+    Serial.printf("[http] connect fail %s ip=%s -> %s\n", urlPathTail(url).c_str(),
+                  lastDnsIp.c_str(), full.c_str());
     bool oomish = (se == -1000 || ESP.getFreeHeap() < 4000);
     http.end();
     // HTTPClient::end() skips _client->stop() when the socket never reached
