@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.1"
+#define FW_VERSION "v1.0.2"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -389,6 +389,9 @@ static uint32_t mkAt = 0;          // millis() of last good fetch
 static uint32_t lastFetchTry = 0;
 static uint32_t lastTlsTry = 0;      // last httpGetStart entry (breaker: fetchers alive?)
 static uint32_t coolUntil = 0;        // backoff after HTTP 429 / OOM
+static uint8_t  tlsFailN = 0;         // consecutive connect/DNS failures (back-off ladder)
+static uint32_t tlsBlock = 0;         // no TLS may start before this (escalating back-off)
+static bool     tlsForce = false;     // manual refresh: bypass one cooldown
 static uint8_t  oomN = 0;             // consecutive BearSSL OOM failures
 static uint32_t lastHttpMs = 0;       // duration of the last connect+GET (diagnostics)
 static const char* lastPhase = "-";   // which fetch ran last, and how long it took
@@ -637,12 +640,41 @@ static bool fetchHold(){
   return true;
 }
 
+// Escalating back-off after connect/DNS failures: a dead uplink used to be
+// retried every ~5s, and every TLS prelude ate 5-7k of the biggest block -
+// that churn shredded the heap and ended in "Unhandled C++ exception: OOM"
+// and heap-wedge reboots.  Ladder: 30s -> 1m -> 2m -> 4m -> 5m (capped).
+static void tlsBackoff(){
+  if(tlsFailN < 6) tlsFailN++;
+  uint32_t d = 30000UL << (tlsFailN > 4 ? 4 : (tlsFailN - 1));
+  if(d > 300000UL) d = 300000UL;
+  d += millis() % (d / 8 + 1);          // jitter: retries must not lock-step
+  tlsBlock = millis() + d;
+  Serial.printf("[http] backoff %lus (fail #%d)\n",
+                (unsigned long)(d / 1000UL), (int)tlsFailN);
+}
+
 // shared TLS GET setup: configures the client, issues the request and handles
 // the 429 backoff.  Returns false with mkErr set; `code` carries the status.
 static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
                          const String& url, int& code){
   uint32_t t0 = millis();
   httpSkip = false;
+  if(tlsForce){ tlsForce = false; tlsBlock = 0; }   // manual refresh: try right now
+  if(millis() < tlsBlock){
+    // connect back-off: the uplink is dead, retrying every 5s only shreds
+    // the heap here instead of waiting for the link to come back
+    httpSkip = true;
+    coolUntil = millis() + 2000UL;
+    lastTlsTry = 0;
+    static uint32_t cdLog = 0;
+    if(millis() - cdLog > 20000UL){
+      cdLog = millis();
+      Serial.printf("[http] cooldown %lus (connect backoff)\n",
+                    (unsigned long)((tlsBlock - millis()) / 1000UL));
+    }
+    return false;
+  }
   lastTlsTry = t0;
   if(time(nullptr) < 1600000000UL){
     // NTP not synced yet (cold install): every handshake fails on the cert
@@ -677,6 +709,7 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
           mkErr = "dns timeout";
         coolUntil = millis() + 5000UL;
         Serial.printf("[dns] %s FAIL %lums\n", host.c_str(), (unsigned long)(millis() - td));
+        tlsBackoff();
         return false;
         }
       }
@@ -747,7 +780,7 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
     code = http.GET();
     lastHttpMs = millis() - t0;
     ESP.wdtFeed();
-    if(code >= 0){ oomN = 0; break; }      // the handshake fit: reset the OOM ladder
+    if(code >= 0){ oomN = 0; tlsFailN = 0; tlsBlock = 0; break; }  // handshake fit: reset ladders
     char eb[64] = {0};
     int se = cli.getLastSSLError(eb, sizeof(eb));
     String full = HTTPClient::errorToString(code) + " (" + String(code) + ") ssl=" + String(se);
@@ -788,18 +821,21 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
       // keep the oomish fast-retry ladder but tell the user the truth.
       mkErr = (se == -1000) ? "no memory (oom)" : "connection failed";
       coolUntil = millis() + (oomN >= 3 ? 60000UL : 2500UL);
+      tlsBackoff();
       return false;
     }
     // non-heap connect fail: full text stays in the serial log, the panel
     // gets a localizable short message (long "code ssl h=.." never matched)
     mkErr = (code == HTTPC_ERROR_CONNECTION_FAILED) ? "connection failed" : full;
     coolUntil = millis() + (code == HTTPC_ERROR_CONNECTION_FAILED ? 15000UL : 45000UL);
+    tlsBackoff();
     return false;
   }
   if(code == 429){
     http.end();
     mkErr = "rate limited (429)";
     coolUntil = millis() + 120000UL;  // CoinGecko free tier: back off 2 minutes
+    tlsFailN = 0; tlsBlock = 0;       // the link works - only rate-limited
     Serial.println("[http] 429 -> backoff 120s");
     return false;
   }
@@ -1955,9 +1991,19 @@ static bool chartCacheLookup(const String& sym, const String& range){
   return hit;
 }
 
+// Flash commits are deferred to a quiet window: a LittleFS commit right on
+// the heels of a TLS session is the observed WDT-crash shape (exception 4
+// inside lfs_dir_commitcrc while the radio was active).  Writes are
+// idempotent, so a deferral costs nothing.
+static bool chartCacheDue = false;
+static bool wxCacheDue = false;
+static bool fsQuietWindow(){
+  return millis() - lastTlsTry > 4000UL && ESP.getMaxFreeBlockSize() >= 12000UL;
+}
+
 static void chartCacheStore(){
   if(cdN < 2 || cfg.sym.length() >= 24) return;
-  if(ESP.getMaxFreeBlockSize() < 9000UL) return;   // FS store on a torn heap
+  if(!fsQuietWindow()){ chartCacheDue = true; return; }  // TLS just ran / torn heap
   LittleFS.remove(CHART_CACHE ".new");            // orphan from a torn store
   File src = LittleFS.open(CHART_CACHE, "r");
   File out = LittleFS.open(CHART_CACHE ".new", "w");
@@ -1985,13 +2031,14 @@ static void chartCacheStore(){
   out.close();
   LittleFS.remove(CHART_CACHE);
   bool rn = LittleFS.rename(CHART_CACHE ".new", CHART_CACHE);
+  chartCacheDue = false;
   Serial.printf("[cache] chartStore sym=%s cd=%d replaced=%d n=%d rename=%d\n",
                 cfg.sym.c_str(), cdN, (int)replaced, n, (int)rn);
 }
 
 static void cacheSaveWx(){
   if(!wxOk) return;
-  if(ESP.getMaxFreeBlockSize() < 9000UL) return;   // FS store on a torn heap
+  if(!fsQuietWindow()){ wxCacheDue = true; return; }  // TLS just ran / torn heap
   File f = LittleFS.open("/wxc.bin", "w");
   if(!f) return;
   WxC c;
@@ -2010,6 +2057,7 @@ static void cacheSaveWx(){
   strlcpy(c.desc, wxDesc.c_str(), sizeof(c.desc));
   f.write((const uint8_t*)&c, sizeof(c));
   f.close();
+  wxCacheDue = false;
 }
 
 static bool cacheLoadWx(){
@@ -2493,7 +2541,8 @@ static void fetchData(bool force){
     mark(RM_HEAD | RM_PRICE | RM_FOOT);
     Serial.printf("[data] price=%.4f chg=%.2f\n", mkPrice, mkChg);
   } else {
-    if(!failSince) failSince = now;
+    if(httpSkip) failSince = 0;   // cooldown/gate skip: fetchers alive, not wedged
+    else if(!failSince) failSince = now;
     else if(now - failSince > 180000UL && (now - bootMs) > 240000UL){
       // a stuck dns/connection cycle keeps every fetch (and the wedge
       // detectors below) from ever succeeding - reboot once data is 3min stale
@@ -2502,9 +2551,9 @@ static void fetchData(bool force){
     }
     if(!httpSkip) mkErrReal = mkErr;
     mark(RM_PRICE | RM_FOOT);
-    if(mkErr.startsWith("no memory") ||
+    if(!httpSkip && (mkErr.startsWith("no memory") ||
        mkErr.startsWith("connection failed") ||
-       mkErr == "heap low") lastFetchTry = millis() - 15000UL;  // retry in 5s
+       mkErr == "heap low")) lastFetchTry = millis() - 15000UL;  // retry in 5s
     Serial.printf("[data] price FAIL %s\n", mkErr.c_str());
   }
 }
@@ -2559,7 +2608,7 @@ static void fetchCandlesData(){
     if(mkErr.startsWith("ohlc truncated")){
       truncUntil = now + 45000UL;      // stop hammering a stalling stream
       lastTry = now;                   // truncUntil gates the next attempt
-    } else if(mkErr.startsWith("no memory") || mkErr.startsWith("connection failed")){
+    } else if(!httpSkip && (mkErr.startsWith("no memory") || mkErr.startsWith("connection failed"))){
       lastTry = millis() - 15000UL;    // retry in 5s
     }
     if(!httpSkip) mkErrReal = mkErr;
@@ -3084,8 +3133,9 @@ static void bootShow(uint8_t f){
 
 static uint8_t bootFrame = 0;
 static uint32_t bootNext = 0;
+static bool warmBoot = false;          // warm reset: skip all boot frames
 static void bootTick(uint32_t now){
-  if(now < bootNext) return;
+  if(warmBoot || now < bootNext) return;
   bootNext = now + BOOT_MS;
   bootShow(bootFrame);
   if(++bootFrame >= BOOT_N) bootFrame = 0;
@@ -6379,6 +6429,7 @@ static void handleRefresh(){
   lastFetchTry = 0;
   mkErrReal = "";
   candlesForce = true;
+  tlsForce = true;                 // user asked: one attempt despite the back-off
   coolUntil = millis() + 2000UL;   // let any in-flight fetch finish first
   pokeWx();
   if(cfg.theme == "crypto3"){ q3At = millis() - (uint32_t)cfg.refresh * 1000UL - 1000UL; q3Try = millis() - 21000UL; }
@@ -6934,10 +6985,18 @@ void setup(){
 #else
   digitalWrite(TFT_BL, HIGH);
 #endif
+  // Warm reset (crash/watchdog/OTA): replaying the winXP animation made every
+  // recovery very visible.  The ST7789 keeps its GRAM across the ESP reset,
+  // so skipping the animation leaves the last frame on the glass until the
+  // first paint a couple of seconds later - the restart looks like a repaint.
+  // Cold power-on keeps the full animation.
+  warmBoot = ESP.getResetReason().indexOf("Power on") < 0;
   tft.init();
   tft.setRotation(0);
-  bootShow(0);                          // fullscreen winXP boot animation
-  bootNext = millis();
+  if(!warmBoot){
+    bootShow(0);                        // fullscreen winXP boot animation
+    bootNext = millis();
+  }
 
   if(!LittleFS.begin()){
     Serial.println("[fs] mount failed, formatting");
@@ -7210,13 +7269,21 @@ void loop(){
     // and failing from outside (handshake wave / rate limit) - a reboot cannot
     // help that and used to produce a restart cycle every ~5 min during a
     // 30+ min outage.  The breaker is for the fetchers being STUCK (no try).
-    if(now - lastTlsTry < 120000UL) blkSince = 0;
+    if(millis() < tlsBlock || now - lastTlsTry < 120000UL) blkSince = 0;
+    // ^ an active connect back-off means the fetchers are alive, not wedged
     else if(!blkSince) blkSince = now;
     else if(now - blkSince > 120000UL && (now - bootMs) > 240000UL){
       Serial.println("[heap] fragmented too long with data due -> restart");
       delay(100); Serial.flush(); ESP.restart();
     }
   } else blkSince = 0;
+
+  // deferred cache commits: only when the radio has been quiet for a while
+  // and the heap is healthy - see fsQuietWindow()
+  if((chartCacheDue || wxCacheDue) && fsQuietWindow()){
+    if(chartCacheDue){ chartCacheDue = false; if(cdN >= 2) chartCacheStore(); }
+    if(wxCacheDue){ wxCacheDue = false; cacheSaveWx(); }
+  }
 
   // Data polling is spread across 4 phase slots so a single pass of loop() never
   // fires several HTTP requests back-to-back.  That keeps CoinGecko/OWM under the

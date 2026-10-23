@@ -3,6 +3,26 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.2 - 2026-10-23
+
+Stability pass - fewer restarts, and (where unavoidable) invisible ones:
+
+- **Escalating TLS back-off** - after a failed connection/DNS lookup the next
+  attempt waits 30s, then 1m, 2m, 4m, 5m (jittered) instead of retrying every
+  ~5s. That retry churn shredded the largest free block and ended in
+  "Unhandled C++ exception: OOM" reboots. A manual *Refresh* always bypasses
+  the back-off; a successful fetch resets it. Skipped attempts no longer count
+  as wedged fetchers, so a plain ISP outage no longer reboots the clock.
+- **Deferred flash commits** - LittleFS cache writes (chart/weather) wait for
+  a quiet window (no TLS for 4s, largest block >= 12K). A commit right on the
+  heels of a TLS session is the observed hardware-WDT crash shape inside
+  `lfs_dir_commitcrc`. Writes are idempotent, so a deferral costs nothing.
+- **Warm-restart fast path** - on any reset that is not a cold power-on
+  (crash, watchdog, OTA) the boot animation and splash are skipped: the
+  ST7789 keeps its GRAM across the ESP reset, so the last frame stays on the
+  glass until the first repaint. A recovery now looks like a brief repaint
+  instead of a 1-2s boot animation. Cold power-on keeps the animation.
+
 ## v1.0.1 - 2026-10-12
 
 - **Temperature units** - new *Temperature units* setting on the Weather tab:
