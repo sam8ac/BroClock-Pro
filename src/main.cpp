@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.5"
+#define FW_VERSION "v1.0.6"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -396,6 +396,8 @@ static uint32_t coolUntil = 0;        // backoff after HTTP 429 / OOM
 static uint8_t  tlsFailN = 0;         // consecutive connect/DNS failures (back-off ladder)
 static uint32_t tlsBlock = 0;         // no TLS may start before this (escalating back-off)
 static bool     tlsForce = false;     // manual refresh: bypass one cooldown
+static bool     wifiRstPend = false;  // 5 TLS fails in a row: reconnect the STA
+static uint32_t wifiRstAt = 0;
 static uint8_t  oomN = 0;             // consecutive BearSSL OOM failures
 static uint32_t lastHttpMs = 0;       // duration of the last connect+GET (diagnostics)
 static const char* lastPhase = "-";   // which fetch ran last, and how long it took
@@ -656,6 +658,12 @@ static void tlsBackoff(){
   tlsBlock = millis() + d;
   Serial.printf("[http] backoff %lus (fail #%d)\n",
                 (unsigned long)(d / 1000UL), (int)tlsFailN);
+  // instant TLS failures while plain HTTP works = wedged lwip state;
+  // a STA reconnect rebuilds the sockets (seen repeatedly in the soak log)
+  if(tlsFailN >= 5 && !wifiRstPend && cfg.wifiSsid.length()){
+    wifiRstPend = true;
+    wifiRstAt = millis() + 2000UL;
+  }
 }
 
 // shared TLS GET setup: configures the client, issues the request and handles
@@ -1903,6 +1911,21 @@ static uint32_t stampFor(uint32_t ageSec){
   return (millis() > ageMs) ? (millis() - ageMs) : 0;
 }
 
+// Cache writes are the crash vector: a WiFi sys-task stack smash was
+// observed right after a chart commit with the SPI flash busy.  The caches
+// only matter for the frame shown after a reboot, the live screen never
+// reads them - so write them on a slow cadence.  A changed coin/range or
+// city still writes immediately, so a user edit is never lost.
+static uint32_t lastChartStore = 0, lastPriceStore = 0, lastWxStore = 0;
+static String   lastChartKey, lastPriceKey, lastWxKey;
+static bool cacheStoreDue(uint32_t& last, const String& key, const String& now, uint32_t everyMs){
+  if(key != now) return true;
+  return !last || millis() - last > everyMs;
+}
+static void cacheStoreDone(uint32_t& last, String& key, const String& now){
+  last = millis(); key = now;
+}
+
 // ---- per-coin price cache (/prices.bin) ---------------------------------
 // One 36B record per coin id.  On a coin switch the last known price is
 // shown instantly - with its real age in the footer - instead of "--" plus
@@ -1932,6 +1955,8 @@ static bool priceCacheLookup(const String& sym, float& price, float& chg, uint32
 
 static void priceCacheStore(){
   if(!mkOk || mkPrice <= 0 || cfg.sym.length() >= 24) return;
+  if(!cacheStoreDue(lastPriceStore, lastPriceKey, cfg.sym, 300000UL)) return;
+  if(millis() - lastTlsTry < 4000UL) return;       // right after TLS: next tick
   if(ESP.getMaxFreeBlockSize() < 9000UL) return;   // FS store on a torn heap
   LittleFS.remove(PRICE_CACHE ".new");            // orphan from a torn store
   File src = LittleFS.open(PRICE_CACHE, "r");
@@ -1958,6 +1983,7 @@ static void priceCacheStore(){
   out.close();
   LittleFS.remove(PRICE_CACHE);
   LittleFS.rename(PRICE_CACHE ".new", PRICE_CACHE);
+  cacheStoreDone(lastPriceStore, lastPriceKey, cfg.sym);
 }
 
 // ---- multi-coin chart cache (/charts.bin) -------------------------------
@@ -2007,6 +2033,8 @@ static bool fsQuietWindow(){
 
 static void chartCacheStore(){
   if(cdN < 2 || cfg.sym.length() >= 24) return;
+  String cKey = cfg.sym + "|" + cfg.range;
+  if(!cacheStoreDue(lastChartStore, lastChartKey, cKey, 600000UL)) return;  // 10 min
   if(!fsQuietWindow()){ chartCacheDue = true; return; }  // TLS just ran / torn heap
   LittleFS.remove(CHART_CACHE ".new");            // orphan from a torn store
   File src = LittleFS.open(CHART_CACHE, "r");
@@ -2036,12 +2064,15 @@ static void chartCacheStore(){
   LittleFS.remove(CHART_CACHE);
   bool rn = LittleFS.rename(CHART_CACHE ".new", CHART_CACHE);
   chartCacheDue = false;
+  cacheStoreDone(lastChartStore, lastChartKey, cKey);
   Serial.printf("[cache] chartStore sym=%s cd=%d replaced=%d n=%d rename=%d\n",
                 cfg.sym.c_str(), cdN, (int)replaced, n, (int)rn);
 }
 
 static void cacheSaveWx(){
   if(!wxOk) return;
+  String wKey = cfg.city + "|" + cfg.wprov;
+  if(!cacheStoreDue(lastWxStore, lastWxKey, wKey, 900000UL)) return;  // 15 min
   if(!fsQuietWindow()){ wxCacheDue = true; return; }  // TLS just ran / torn heap
   File f = LittleFS.open("/wxc.bin", "w");
   if(!f) return;
@@ -2062,6 +2093,7 @@ static void cacheSaveWx(){
   f.write((const uint8_t*)&c, sizeof(c));
   f.close();
   wxCacheDue = false;
+  cacheStoreDone(lastWxStore, lastWxKey, wKey);
 }
 
 static bool cacheLoadWx(){
@@ -2558,7 +2590,7 @@ static void fetchData(bool force){
     if(!httpSkip && (mkErr.startsWith("no memory") ||
        mkErr.startsWith("connection failed") ||
        mkErr == "heap low")) lastFetchTry = millis() - 15000UL;  // retry in 5s
-    Serial.printf("[data] price FAIL %s\n", mkErr.c_str());
+    if(!httpSkip) Serial.printf("[data] price FAIL %s\n", mkErr.c_str());
   }
 }
 
@@ -2617,7 +2649,7 @@ static void fetchCandlesData(){
     }
     if(!httpSkip) mkErrReal = mkErr;
     if(cdN == 0 && chartCacheLookup(cfg.sym, cfg.range)) mark(RM_CHART);   // last good chart back
-    Serial.printf("[candle] FAIL %s\n", mkErr.c_str());
+    if(!httpSkip) Serial.printf("[candle] FAIL %s\n", mkErr.c_str());
   }
 }
 
@@ -7307,6 +7339,16 @@ void loop(){
       delay(100); Serial.flush(); ESP.restart();
     }
   } else blkSince = 0;
+
+  // repeated TLS failures wedged the sockets: rebuild the link
+  if(wifiRstPend && millis() >= wifiRstAt){
+    wifiRstPend = false;
+    Serial.println("[wifi] 5 TLS fails in a row -> STA reconnect");
+    WiFi.disconnect();
+    WiFi.begin(cfg.wifiSsid.c_str(), cfg.wifiPass.c_str());
+    tlsFailN = 0;
+    tlsBlock = millis() + 15000UL;      // let the link settle
+  }
 
   // deferred cache commits: only when the radio has been quiet for a while
   // and the heap is healthy - see fsQuietWindow()

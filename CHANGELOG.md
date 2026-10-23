@@ -3,6 +3,21 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.6 - 2026-10-23
+
+Data-reliability pass after a 7-hour soak (log analysis):
+
+- **Cache-write throttling** - price cache <= 5 min, candles <= 10 min, weather
+  <= 15 min; a changed coin/range/city still writes immediately. A WiFi
+  sys-task stack smash was observed right after a flash commit, and one commit
+  per fetch was a lot of chances to hit it.
+- **STA reconnect on a wedged link** - after 5 real TLS failures in a row the
+  station reconnects (plain HTTP from the device still worked while TLS
+  "connection failed" instantly, i.e. the lwip socket state was stuck). A
+  successful fetch resets the counter.
+- **Quieter logs** - `price FAIL` / `candle FAIL` are printed for real attempts
+  only, not for back-off skips.
+
 ## v1.0.5 - 2026-10-23
 
 Warm restarts are now visually seamless:
