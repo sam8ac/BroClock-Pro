@@ -3,6 +3,22 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.5 - 2026-10-23
+
+Warm restarts are now visually seamless:
+
+- **No panel reset on a clean restart** - `tools/patch_tftespi.py` (pre-build)
+  lets the firmware skip the ST7789 reset when the previous run ended cleanly
+  (`Software/System restart`, `External System`). The panel keeps its GRAM, so
+  the old clock stays on the glass until the repaint: no white flash, no black
+  frame. After a crash the SPI bus may have been interrupted mid-command, so
+  there the full reset still runs.
+- **Repaint from cache before the WiFi wait** - the card caches are loaded
+  right after the filesystem mount, so a warm restart shows the clock within
+  ~0.3s instead of leaving blank glass during the connect sequence.
+- **`/api/reboot`** - software restart on demand (also used to test the warm
+  path without opening the USB port, which resets the board by itself).
+
 ## v1.0.2 - 2026-10-23
 
 Stability pass - fewer restarts, and (where unavoidable) invisible ones:

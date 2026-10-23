@@ -46,6 +46,16 @@ curl http://DEVICE_IP/api/refresh          # weather + market fetch now
 back-offs) and pokes the weather fetchers — the same request the Crypto tab’s
 **Refresh data now** button fires.
 
+## Reboot
+
+```bash
+curl http://DEVICE_IP/api/reboot           # software restart
+```
+
+A clean restart is a *warm* one: the boot animation is skipped, the panel is
+not reset (no white flash) and the clock is repainted from cache — visually it
+is just a brief repaint. Cold power-on keeps the full boot animation.
+
 ## Weather
 
 ```bash
