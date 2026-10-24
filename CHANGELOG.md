@@ -3,6 +3,11 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.29 - 2026-10-24
+
+- **Open-Meteo over plain HTTP** - weather, 6-day forecast and geocoding now use http:// (no TLS). That host offers no MFLN and its handshake never fit the ESP8266 heap next to a 2048-byte TLS buffer, so the weather stayed on 'loading' for hours. The plain path buffers the body with getString() (chunked framing is only decoded there). Live: /v1/forecast 200 in ~50ms, current 797B + forecast 616B.
+- **One request for price + ticker** - the 3-coin ticker used its own /simple/price call; two TLS sessions per minute starved whichever ran second (ticker stale while the price was fresh). They now share one request.
+
 ## v1.0.27 - 2026-10-24
 
 - **Boot WDT loop fixed** - the warm repaint ran before TJpgDec.setCallback() was installed, so drawing the weather icons spun in the decoder on a null callback and the hardware watchdog rebooted the board every ~9s. The callback is now set right after the caches, before the early render.
@@ -99,10 +104,10 @@ Stability pass - fewer restarts, and (where unavoidable) invisible ones:
 ## v1.0.1 - 2026-10-12
 
 - **Temperature units** - new *Temperature units* setting on the Weather tab:
-  render temperatures in Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°C or Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°F. Applies to the Classic, Weather and
+  render temperatures in Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°C or Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°F. Applies to the Classic, Weather and
   Forecast themes (converted at draw time; cached weather stays metric).
   Stored as `tunit` in config, exposed in `/api/status` and `/api/set`,
-  localized in EN/RU/ES/ZH. Existing configs keep Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°C (no migration).
+  localized in EN/RU/ES/ZH. Existing configs keep Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°C (no migration).
 - **Installed firmware version** - the Firmware tab shows the running
   firmware version and build date; also exposed as `fw` in `/api/status`.
 - Repository: added this CHANGELOG; `docs/HTTP-API.md` documents `tunit`

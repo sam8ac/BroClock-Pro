@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.27"
+#define FW_VERSION "v1.0.29"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -1080,7 +1080,57 @@ static bool httpJsonOnce(const String& url, JsonDocument& doc, const char* filte
   }
 }
 
+// Plain-HTTP JSON GET for Open-Meteo: that host offers no MFLN and its cert
+// chain never fit next to the 2048-byte TLS buffer (handshake timed out every
+// time), while the very same URL answers instantly over http.  No TLS engine,
+// no heap-peak gate - just a socket.
+static bool httpJsonPlain(const String& url, JsonDocument& doc, const char* filter = nullptr){
+  WiFiClient cli;
+  HTTPClient http;
+  http.setTimeout(8000);
+  http.setReuse(false);
+  if(!http.begin(cli, url)){ mkErr = "begin failed"; return false; }
+  http.addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+  http.addHeader("Accept", "application/json");
+  http.addHeader("Accept-Encoding", "identity");
+  int code = http.GET();
+  lastHttpMs = millis();
+  // buffer the body: keep-alive/chunked framing is only decoded by getString(),
+  // not when parsing straight from getStream()
+  String body = (code == 200) ? http.getString() : String();
+  http.end();
+  Serial.printf("[http-plain] %s code=%d len=%u\n", urlPathTail(url).c_str(),
+                code, (unsigned)body.length());
+  if(code != 200){
+    mkErr = (code < 0) ? "connection failed" : String("http ") + String(code);
+    return false;
+  }
+  DeserializationError e;
+  if(filter){
+    JsonDocument fd;
+    if(deserializeJson(fd, filter) == DeserializationError::Ok)
+      e = deserializeJson(doc, body.c_str(), body.length(),
+                          DeserializationOption::Filter(fd));
+    else
+      e = deserializeJson(doc, body.c_str(), body.length());
+  } else {
+    e = deserializeJson(doc, body.c_str(), body.length());
+  }
+  if(e){
+    mkErr = String("json ") + e.c_str();
+    Serial.printf("[http-plain] body=%.90s\n", body.c_str());
+    return false;
+  }
+  mkErr = "";
+  return true;
+}
+
 static bool httpJson(const String& url, JsonDocument& doc, const char* filter = nullptr){
+  if(url.startsWith("http://")){     // plain HTTP: no TLS, no heap peak needed
+    if(httpJsonPlain(url, doc, filter)) return true;
+    delay(200);
+    return false;
+  }
   // a single attempt: loop() must stay responsive (soft WDT = 8s), and a
   // failure is retried by the caller's normal interval anyway
   if(httpJsonOnce(url, doc, filter)) return true;
@@ -1099,20 +1149,6 @@ static bool httpJson(const String& url, JsonDocument& doc, const char* filter = 
 static String cgBase(){ return String("https://api.coingecko.com/api/v3"); }
 static int daysOf(){
   return 1;                       // range is hardcoded to 1d (selector removed)
-}
-
-static bool fetchPrice(){
-  JsonDocument d;
-  String url = cgBase() + "/simple/price?ids=" + cfg.sym +
-               "&vs_currencies=usd&include_24hr_change=true";
-  if(!httpJson(url, d)) return false;
-  JsonObject o = d[cfg.sym].as<JsonObject>();
-  if(o.isNull()) { mkErr = "no data"; return false; }
-  mkPrice = o["usd"] | 0.0f;
-  mkChg   = o["usd_24h_change"] | 0.0f;
-  mkOk = true;
-  mkAt = millis();
-  return true;
 }
 
 // CoinGecko /ohlc answers with a flat [[ts,o,h,l,c], ...].  days=7 is ~336 rows
@@ -1294,52 +1330,47 @@ static void localCoinInfo(const String& id, String& sym, String& name){
   name = id;
 }
 
-// /simple/price answers with ~100 bytes per id; the old /coins/markets pulled
-// every field CoinGecko has (~50k) which neither fits the heap nor the budget
-static bool fetchQuotes(){
-  if(!cfg.syms.length()) return false;
-  JsonDocument d;
-  String url = cgBase() + "/simple/price?ids=" + cfg.syms +
-               "&vs_currencies=usd&include_24hr_change=true";
-  if(!httpJson(url, d)) return false;
-
+// One /simple/price request feeds both the main price and the 3-coin ticker:
+// every TLS session needs ~8k of contiguous heap, so a second request per
+// minute starved whichever ran second (the ticker sat stale while the price
+// was fresh, and vice versa).
+static bool fetchPriceAndQuotes(){
+  String ids = cfg.sym;
   String want[NQ];
   int nw = 0;
   symsSplit(cfg.syms, want, nw);
-  for(int i = 0; i < NQ; i++){ q3[i] = Quote(); }
-
-  int n = 0;
   for(int i = 0; i < nw; i++){
-    JsonObject o = d[want[i]].as<JsonObject>();
-    if(o.isNull()) continue;
-    localCoinInfo(want[i], q3[i].sym, q3[i].name);
-    q3[i].id = want[i];
-    q3[i].price = o["usd"] | 0.0f;
-    q3[i].chg = o["usd_24h_change"] | 0.0f;
-    q3[i].ok = true;
-    n++;
+    if(!want[i].length() || want[i] == cfg.sym) continue;
+    if(("," + ids + ",").indexOf("," + want[i] + ",") >= 0) continue;
+    ids += "," + want[i];
   }
-  if(!n){ mkErr = "no quotes"; return false; }
-  q3Ok = true; q3At = millis();
-  cacheSaveQ3();
-  Serial.printf("[q3] %d quotes for %s\n", n, cfg.syms.c_str());
+  JsonDocument d;
+  String url = cgBase() + "/simple/price?ids=" + ids +
+               "&vs_currencies=usd&include_24hr_change=true";
+  if(!httpJson(url, d)) return false;
+  JsonObject o = d[cfg.sym].as<JsonObject>();
+  if(o.isNull()){ mkErr = "no data"; return false; }
+  mkPrice = o["usd"] | 0.0f;
+  mkChg   = o["usd_24h_change"] | 0.0f;
+  mkOk = true;
+  mkAt = millis();
+  if(nw){
+    for(int i = 0; i < NQ; i++) q3[i] = Quote();
+    int n = 0;
+    for(int i = 0; i < nw; i++){
+      if(!want[i].length()) continue;
+      JsonObject q = d[want[i]].as<JsonObject>();
+      if(q.isNull()) continue;
+      localCoinInfo(want[i], q3[i].sym, q3[i].name);
+      q3[i].id = want[i];
+      q3[i].price = q["usd"] | 0.0f;
+      q3[i].chg = q["usd_24h_change"] | 0.0f;
+      q3[i].ok = true;
+      n++;
+    }
+    if(n){ q3Ok = true; q3At = millis(); cacheSaveQ3(); }
+  }
   return true;
-}
-
-static void maybeFetchQuotes(){
-  uint32_t t = millis();
-  if(fetchHold()) return;         // link just up: DNS/heap settle window
-  if(t < coolUntil) return;
-  if(cfg.theme != "crypto3") return;
-  if(q3At && t - q3At < (uint32_t)cfg.refresh * 1000UL) return;
-  if(t - q3Try < 20000UL) return;
-  if(ESP.getMaxFreeBlockSize() < 8300UL) return;   // no contiguous room for TLS
-  q3Try = t;
-  bool qok = fetchQuotes();
-  if(qok){ mkErrReal = ""; mark(RM_PRICE); }
-  else if(!httpSkip) mkErrReal = mkErr;
-  coolUntil = millis() + coolGap();   // space the next fetcher even on failure
-  lastPhase = "q3"; lastPhaseMs = millis() - t;
 }
 
 // ---------------------------------------------------------------- weather
@@ -1529,7 +1560,7 @@ static bool omGeoPrefix(){
   String pref = cutB(cfg.city, 3);
   if(pref.length() < 3) return false;          // too short to narrow anything down
   JsonDocument d;
-  String url = String("https://geocoding-api.open-meteo.com/v1/search?name=") +
+  String url = String("http://geocoding-api.open-meteo.com/v1/search?name=") +
                urlencode(pref) + "&count=10&language=" + geoLang() + "&format=json";
   static const char* F =
     "{\"results\":[{\"name\":true,\"latitude\":true,\"longitude\":true,\"country_code\":true}]}";
@@ -1615,7 +1646,7 @@ static bool omGeocode(){
   if(ci > 0 && q.length() - ci == 3 && isAlpha(q[ci + 1]) && isAlpha(q[ci + 2]))
     q = q.substring(0, ci);
   JsonDocument d;
-  String url = String("https://geocoding-api.open-meteo.com/v1/search?name=") +
+  String url = String("http://geocoding-api.open-meteo.com/v1/search?name=") +
                urlencode(q) + "&count=1&language=" + geoLang() + "&format=json";
   static const char* F =
     "{\"results\":[{\"name\":true,\"latitude\":true,\"longitude\":true,\"country_code\":true}]}";
@@ -1646,7 +1677,7 @@ static bool fetchWeatherOmeto(){
     saveCfg();                       // once per city: weather never geocodes again
   }
   JsonDocument d;
-  String url = String("https://api.open-meteo.com/v1/forecast?latitude=") +
+  String url = String("http://api.open-meteo.com/v1/forecast?latitude=") +
                String(omGeoLat, 4) + "&longitude=" + String(omGeoLon, 4) +
                "&current=temperature_2m,apparent_temperature,relative_humidity_2m,"
                "weather_code,wind_speed_10m,cloud_cover,surface_pressure"
@@ -1835,7 +1866,7 @@ static bool fetchForecastOmeto(){
     saveCfg();
   }
   JsonDocument d;
-  String url = String("https://api.open-meteo.com/v1/forecast?latitude=") +
+  String url = String("http://api.open-meteo.com/v1/forecast?latitude=") +
                String(omGeoLat, 4) + "&longitude=" + String(omGeoLon, 4) +
                "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
                "precipitation_probability_max&timezone=auto&forecast_days=6";
@@ -2601,7 +2632,7 @@ static void fetchData(bool force){
   lastFetchTry = now;
   Serial.printf("[data] price %s\n", cfg.sym.c_str());
   uint32_t t0 = millis();
-  bool ok = fetchPrice();
+  bool ok = fetchPriceAndQuotes();
   lastPhase = "price"; lastPhaseMs = millis() - t0;
   if(ok){
     failSince = 0;
@@ -6815,7 +6846,7 @@ static void handleCitySuggest(){
     uint8_t c = (uint8_t)q[i];
     if(c >= 0xD0 && c <= 0xD1){ lang = "ru"; break; }
   }
-  String url = String("https://geocoding-api.open-meteo.com/v1/search?name=") +
+  String url = String("http://geocoding-api.open-meteo.com/v1/search?name=") +
                urlencode(q) + "&count=5&language=" + lang + "&format=json";
   static const char* F =
     "{\"results\":[{\"name\":true,\"admin1\":true,\"country\":true,\"country_code\":true}]}";
@@ -7446,7 +7477,7 @@ void loop(){
         // in a handful of seconds and the user sees weather before crypto
         case 0: maybeFetchWx();      break;   // weather / auto city / forecast
         case 1: fetchData(false);    break;   // price
-        case 2: maybeFetchQuotes(); maybeFetchHolidays(); break;   // light first: quotes + holidays
+        case 2: maybeFetchHolidays(); break;   // light: holidays (quotes ride with the price)
         case 3: fetchCandlesData();  break;   // candles last: the big request
       }
       if(dirty) render();
