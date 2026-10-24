@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.10"
+#define FW_VERSION "v1.0.12"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -710,12 +710,20 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
   // needs another ~7.1k from the biggest block.
   {
     uint32_t f0 = ESP.getFreeHeap(), m0 = ESP.getMaxFreeBlockSize();
-    if(f0 < 9000UL || m0 < 8500UL){
+    // NOTE: the caller already constructed BearSSL::WiFiClientSecure, whose
+    // ctx takes ~6.6k - these numbers are POST-ctx.  The handshake needs
+    // ~7.1k contiguous more, so only start from a genuine heap peak
+    // (overnight soak: attempts at mfb 7.6k failed ~every time, 9.6k worked).
+    if(f0 < 9800UL || m0 < 8900UL){
       httpSkip = true;
       mkErr = "heap low";
       coolUntil = millis() + 2500UL;
       lastTlsTry = 0;                   // not a real attempt: let the breaker fire
-      Serial.printf("[http] skip free=%u mfb=%u\n", (unsigned)f0, (unsigned)m0);
+      static uint32_t skLog = 0;
+      if(millis() - skLog > 20000UL){
+        skLog = millis();
+        Serial.printf("[http] skip free=%u mfb=%u\n", (unsigned)f0, (unsigned)m0);
+      }
       return false;
     }
     Serial.printf("[http] try free=%u mfb=%u\n", (unsigned)f0, (unsigned)m0);

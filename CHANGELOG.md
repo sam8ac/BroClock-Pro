@@ -3,6 +3,12 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.12 - 2026-10-24
+
+- **TLS gate tuned to the post-ctx heap** - WiFiClientSecure allocates its BearSSL context (~6.6k) before the fetch helper runs, so the gate now sees post-ctx numbers and only starts a session at a heap peak (free >= 9800, largest block >= 8900). Overnight data: attempts at mfb 7.6k failed essentially always, at 10k they succeed in ~180ms (session resumption). Skip logging is throttled to 20s.
+
+Known issue: the peak still erodes over ~5 minutes of alloc/free churn (each session allocates/frees the ctx), after which the deadlock breaker does an invisible warm restart. The next step is a persistent BearSSL client to stop the churn.
+
 ## v1.0.10 - 2026-10-23
 
 - **Diagnostic**: the connect-failure log now prints the resolved IP (ip=...), so a blackholed Cloudflare A record is distinguishable from a heap failure.
@@ -78,10 +84,10 @@ Stability pass - fewer restarts, and (where unavoidable) invisible ones:
 ## v1.0.1 - 2026-10-12
 
 - **Temperature units** - new *Temperature units* setting on the Weather tab:
-  render temperatures in В°C or В°F. Applies to the Classic, Weather and
+  render temperatures in Р’В°C or Р’В°F. Applies to the Classic, Weather and
   Forecast themes (converted at draw time; cached weather stays metric).
   Stored as `tunit` in config, exposed in `/api/status` and `/api/set`,
-  localized in EN/RU/ES/ZH. Existing configs keep В°C (no migration).
+  localized in EN/RU/ES/ZH. Existing configs keep Р’В°C (no migration).
 - **Installed firmware version** - the Firmware tab shows the running
   firmware version and build date; also exposed as `fw` in `/api/status`.
 - Repository: added this CHANGELOG; `docs/HTTP-API.md` documents `tunit`
