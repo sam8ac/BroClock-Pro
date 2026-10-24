@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.21"
+#define FW_VERSION "v1.0.22"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -7087,8 +7087,11 @@ void setup(){
   // bus may have been interrupted mid-command, there a full reset is safe.
   String rstRsn = ESP.getResetReason();
   warmBoot = rstRsn.indexOf("Power on") < 0;
-  bool keepFrame = rstRsn.indexOf("System restart") >= 0 ||
-                   rstRsn.indexOf("External System") >= 0;
+  // Only a software restart keeps the frame: after an external reset the
+  // ESP sat in the bootloader with floating SPI lines for seconds and the
+  // panel can swallow random data mid-command - without its reset the glass
+  // stayed black while the firmware kept drawing (observed after a flash).
+  bool keepFrame = rstRsn.indexOf("System restart") >= 0;
   sdpro_skip_tft_reset = keepFrame;
   tft.init();
   sdpro_skip_tft_reset = false;
