@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.12"
+#define FW_VERSION "v1.0.21"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -89,6 +89,9 @@ struct Cfg {
   String owmKey;           // OpenWeatherMap API key, user-entered ("" = none)
   String cgKey;            // optional CoinGecko Demo API key ("" = free public)
   uint8_t tunit = 0;       // temperature unit: 0 = Celsius, 1 = Fahrenheit (display)
+  // cached geocode for gCity: saves the geocoding TLS request on every boot
+  String  gCity, gName, gCc;
+  float   gLat = 0, gLon = 0;
 } cfg;
 
 // 0 = ru, 1 = en, 2 = es, 3 = zh
@@ -714,7 +717,7 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
     // ctx takes ~6.6k - these numbers are POST-ctx.  The handshake needs
     // ~7.1k contiguous more, so only start from a genuine heap peak
     // (overnight soak: attempts at mfb 7.6k failed ~every time, 9.6k worked).
-    if(f0 < 9800UL || m0 < 8900UL){
+    if(f0 < 9000UL || m0 < 8800UL){
       httpSkip = true;
       mkErr = "heap low";
       coolUntil = millis() + 2500UL;
@@ -773,7 +776,7 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
   // cert but trims the handshake peak by ~1k.  That headroom is what keeps the
   // WiFi task from OOM-crashing in ieee80211_setup_ratetable when the heap is
   // at its floor during a fetch.
-  cli.setBufferSizes(2048, 512);
+  cli.setBufferSizes(2048, 512);   // 1024 was too small: ssl=6
   http.setTimeout(6000);                  // keep loop() bounded: ESP8266 soft WDT = 8s
                                            // (also covers DNS resolve + TCP connect)
   http.setReuse(false);
@@ -937,6 +940,10 @@ private:
   size_t      _bytes   = 0;
 };
 
+// NOTE: the client is created per fetch on purpose.  A persistent one saves
+// the ~6.4k ctor churn, but a failed connect leaves the BearSSL engine
+// allocated and a long-lived object never frees it (observed: heap stuck
+// at 7.3k, handshakes kept failing).  The destructor releases it.
 static bool httpJsonOnce(const String& url, JsonDocument& doc, const char* filter = nullptr){
   uint32_t heapBefore = ESP.getFreeHeap();
   BearSSL::WiFiClientSecure cli;
@@ -1448,6 +1455,7 @@ static String omGeoQ, omGeoName, omGeoCc;
 static float omGeoLat = 0, omGeoLon = 0;
 static bool omGeoOk = false;
 static void omGeoInvalidate(){ omGeoOk = false; }
+static void saveCfg();
 static bool omGeocode();
 
 static bool fetchWeatherOwm(){
@@ -1540,6 +1548,13 @@ static bool omGeoPrefix(){
 
 static bool omGeocode(){
   if(omGeoOk && omGeoQ == cfg.city) return true;
+  if(cfg.gCity == cfg.city && cfg.gLat != 0.0f){
+    omGeoLat = cfg.gLat; omGeoLon = cfg.gLon;
+    omGeoCc = cfg.gCc;   omGeoName = cfg.gName;
+    omGeoQ = cfg.city;   omGeoOk = true;
+    Serial.printf("[omgeo] cached coords for %s\n", cfg.city.c_str());
+    return true;
+  }
   // 1) OWM geocoder first (only when the user provided a key): it accepts
   //    Latin AND Cyrillic, resolves both of OWM's spellings ("Vitsebsk")
   //    and supplies coords/cc in one handshake.
@@ -1614,6 +1629,13 @@ static bool omGeocode(){
 // Cyrillic - and answers with a localisation, so the display gets "Витебск")
 static bool fetchWeatherOmeto(){
   if(!omGeocode()){ if(!httpSkip){ wxErr = "geocode"; wxOk = false; } return false; }
+  if(cfg.gCity != cfg.city){
+    cfg.gCity = cfg.city; cfg.gLat = omGeoLat; cfg.gLon = omGeoLon;
+    cfg.gName = omGeoName; cfg.gCc = omGeoCc;
+    Serial.printf("[omgeo] saved coords %s %.4f,%.4f\n", cfg.city.c_str(),
+                  (double)cfg.gLat, (double)cfg.gLon);
+    saveCfg();                       // once per city: weather never geocodes again
+  }
   JsonDocument d;
   String url = String("https://api.open-meteo.com/v1/forecast?latitude=") +
                String(omGeoLat, 4) + "&longitude=" + String(omGeoLon, 4) +
@@ -1798,6 +1820,11 @@ static int wdayYMD(int y, int m, int d){
 
 static bool fetchForecastOmeto(){
   if(!omGeocode()){ mkErr = "fc geocode"; return false; }
+  if(cfg.gCity != cfg.city){
+    cfg.gCity = cfg.city; cfg.gLat = omGeoLat; cfg.gLon = omGeoLon;
+    cfg.gName = omGeoName; cfg.gCc = omGeoCc;
+    saveCfg();
+  }
   JsonDocument d;
   String url = String("https://api.open-meteo.com/v1/forecast?latitude=") +
                String(omGeoLat, 4) + "&longitude=" + String(omGeoLon, 4) +
@@ -2915,6 +2942,11 @@ static void saveCfg(){
   d["owmkey"] = cfg.owmKey;
   d["cgkey"] = cfg.cgKey;
   d["tunit"] = cfg.tunit;
+  d["gcity"] = cfg.gCity;
+  d["gname"] = cfg.gName;
+  d["gcc"]   = cfg.gCc;
+  d["glat"]  = cfg.gLat;
+  d["glon"]  = cfg.gLon;
   File f = LittleFS.open("/config.json", "w");
   if(!f) return;
   serializeJson(d, f);
@@ -2998,6 +3030,11 @@ static void loadCfg(){
   if(d["owmkey"].is<const char*>()) cfg.owmKey = d["owmkey"].as<String>();
   if(d["cgkey"].is<const char*>())  cfg.cgKey  = d["cgkey"].as<String>();
   if(d["tunit"].is<int>())          cfg.tunit = (d["tunit"].as<int>() == 1) ? 1 : 0;
+  if(d["gcity"].is<const char*>())  cfg.gCity = d["gcity"].as<String>();
+  if(d["gname"].is<const char*>())  cfg.gName = d["gname"].as<String>();
+  if(d["gcc"].is<const char*>())    cfg.gCc   = d["gcc"].as<String>();
+  cfg.gLat = d["glat"] | 0.0f;   // parsed numbers are int64/double: is<float>() misses them
+  cfg.gLon = d["glon"] | 0.0f;
   // legacy configs: an old default of "owm" without any user key cannot
   // work on a keyless build -> fall back to Open-Meteo
   if(cfg.wprov == "owm" && !cfg.owmKey.length()) cfg.wprov = "ometo";
@@ -6296,6 +6333,19 @@ static void handleSet(){
     }
     cfg.tunit = (v == "1") ? 1 : 0;
     mark(RM_ALL);                    // repaint every theme in the new unit
+  } else if(k == "geo"){
+    // "lat,lon": seed the geocode cache so the weather path never needs
+    // the geocoding service for this city
+    int cm = v.indexOf(',');
+    float la = (cm > 0) ? v.substring(0, cm).toFloat() : 0.0f;
+    float lo = (cm > 0) ? v.substring(cm + 1).toFloat() : 0.0f;
+    if(cm <= 0 || la == 0.0f || lo == 0.0f){
+      server.send(400, "application/json", "{\"error\":\"geo\"}");
+      return;
+    }
+    cfg.gLat = la; cfg.gLon = lo; cfg.gCity = cfg.city;
+    omGeoLat = la; omGeoLon = lo; omGeoQ = cfg.city; omGeoOk = true;
+    saveCfg();
   } else if(k == "lang"){
     if(v != "ru" && v != "en" && v != "es" && v != "zh"){
       server.send(400, "application/json", "{\"error\":\"lang\"}");

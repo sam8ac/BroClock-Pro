@@ -3,6 +3,13 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.21 - 2026-10-24
+
+- **Geocode cache persisted** - after the first successful lookup the coordinates are stored in config.json (gcity/glat/glon/gname/gcc), so the weather path never calls the geocoding service again. The Open-Meteo geocoding host was unreachable from the router, which used to freeze the weather for a whole boot.
+- **/api/set?key=geo&value=lat,lon** - seed the cache manually (also handy for OWM users).
+- **Persistent TLS client tried and reverted** - it removes the ~6.4k ctor churn, but a failed connect leaves the BearSSL engine allocated and a long-lived object never frees it (heap settled at 7.3k, handshakes kept failing). Per-fetch clients stay.
+- **TLS RX buffer** stays 2048: 1024 produced ssl=6 (cert chain too large).
+
 ## v1.0.12 - 2026-10-24
 
 - **TLS gate tuned to the post-ctx heap** - WiFiClientSecure allocates its BearSSL context (~6.6k) before the fetch helper runs, so the gate now sees post-ctx numbers and only starts a session at a heap peak (free >= 9800, largest block >= 8900). Overnight data: attempts at mfb 7.6k failed essentially always, at 10k they succeed in ~180ms (session resumption). Skip logging is throttled to 20s.
@@ -84,10 +91,10 @@ Stability pass - fewer restarts, and (where unavoidable) invisible ones:
 ## v1.0.1 - 2026-10-12
 
 - **Temperature units** - new *Temperature units* setting on the Weather tab:
-  render temperatures in Р’В°C or Р’В°F. Applies to the Classic, Weather and
+  render temperatures in Р вЂ™Р’В°C or Р вЂ™Р’В°F. Applies to the Classic, Weather and
   Forecast themes (converted at draw time; cached weather stays metric).
   Stored as `tunit` in config, exposed in `/api/status` and `/api/set`,
-  localized in EN/RU/ES/ZH. Existing configs keep Р’В°C (no migration).
+  localized in EN/RU/ES/ZH. Existing configs keep Р вЂ™Р’В°C (no migration).
 - **Installed firmware version** - the Firmware tab shows the running
   firmware version and build date; also exposed as `fw` in `/api/status`.
 - Repository: added this CHANGELOG; `docs/HTTP-API.md` documents `tunit`
