@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.22"
+#define FW_VERSION "v1.0.27"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -395,6 +395,7 @@ static bool mkOk = false;
 static uint32_t mkAt = 0;          // millis() of last good fetch
 static uint32_t lastFetchTry = 0;
 static uint32_t lastTlsTry = 0;      // last httpGetStart entry (breaker: fetchers alive?)
+static uint32_t lastTlsEnd = 0;      // last REAL attempt finished (min spacing)
 static uint32_t coolUntil = 0;        // backoff after HTTP 429 / OOM
 static uint8_t  tlsFailN = 0;         // consecutive connect/DNS failures (back-off ladder)
 static uint32_t tlsBlock = 0;         // no TLS may start before this (escalating back-off)
@@ -692,6 +693,13 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
     }
     return false;
   }
+  // min spacing between real attempts: the previous session's alloc/free
+  // churn needs a moment to coalesce before the next handshake can fit
+  if(!tlsForce && lastTlsEnd && millis() - lastTlsEnd < 7000UL){
+    httpSkip = true;
+    coolUntil = millis() + 1500UL;
+    return false;
+  }
   lastTlsTry = t0;
   if(time(nullptr) < 1600000000UL){
     // NTP not synced yet (cold install): every handshake fails on the cert
@@ -782,6 +790,7 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
   http.setReuse(false);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
   uint8_t attempt = 0;
+  struct TlsStamp { ~TlsStamp(){ lastTlsEnd = millis(); } } tlsStamp;
   for(;;){
     if(!http.begin(cli, url)){ mkErr = "begin failed"; return false; }
     http.addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
@@ -7117,6 +7126,11 @@ void setup(){
   bool cached = cacheLoadAll();
   loadPhotoMeta();
   themeSince = millis();
+  // the classic/crypto themes decode the weather icons with TJpgDec: the
+  // callback MUST be installed before the warm repaint below, otherwise the
+  // decoder spins on a null callback and the WDT resets the board (loop).
+  TJpgDec.setCallback(wxJpgOut);
+  TJpgDec.setJpgScale(1);
   if(warmBoot){
     rm = RM_ALL;
     dirty = true;
@@ -7211,8 +7225,6 @@ server.on("/api/phjpg", handlePhJpg);
   server.collectHeaders("Accept-Encoding");
   server.begin();
 
-  TJpgDec.setCallback(wxJpgOut);
-  TJpgDec.setJpgScale(1);
   wifiTryMs = millis();
 
   // caches were restored before the WiFi wait (see above)

@@ -3,6 +3,10 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.27 - 2026-10-24
+
+- **Boot WDT loop fixed** - the warm repaint ran before TJpgDec.setCallback() was installed, so drawing the weather icons spun in the decoder on a null callback and the hardware watchdog rebooted the board every ~9s. The callback is now set right after the caches, before the early render.
+
 ## v1.0.22 - 2026-10-24
 
 - **Black screen after a flash fixed** - the panel frame is only kept for a *software* restart (ESP.restart: OTA, breaker, /api/reboot). After an external reset (esptool/flash/bootloader) the SPI lines float for seconds and the panel can swallow random data mid-command; skipping its reset then left the glass black while the firmware kept drawing.
@@ -95,10 +99,10 @@ Stability pass - fewer restarts, and (where unavoidable) invisible ones:
 ## v1.0.1 - 2026-10-12
 
 - **Temperature units** - new *Temperature units* setting on the Weather tab:
-  render temperatures in Р В РІР‚в„ўР вЂ™Р’В°C or Р В РІР‚в„ўР вЂ™Р’В°F. Applies to the Classic, Weather and
+  render temperatures in Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°C or Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°F. Applies to the Classic, Weather and
   Forecast themes (converted at draw time; cached weather stays metric).
   Stored as `tunit` in config, exposed in `/api/status` and `/api/set`,
-  localized in EN/RU/ES/ZH. Existing configs keep Р В РІР‚в„ўР вЂ™Р’В°C (no migration).
+  localized in EN/RU/ES/ZH. Existing configs keep Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°C (no migration).
 - **Installed firmware version** - the Firmware tab shows the running
   firmware version and build date; also exposed as `fw` in `/api/status`.
 - Repository: added this CHANGELOG; `docs/HTTP-API.md` documents `tunit`
