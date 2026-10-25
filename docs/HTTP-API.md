@@ -31,10 +31,29 @@ curl "http://DEVICE_IP/api/set?key=city&value="          # empty = "no city" gat
 
 Keys: `city`, `wprov`, `tunit`, `carousel`, `interval`, `tfmt`, `lang`,
 `brightness`, `nmode`, `nfrom`, `nto`, `nbr`, `bgcolor`, `themes`, `hol`,
-`hctry`, `chart`, `refresh`, `tz`, `pdel`, `sym`, `syms`.
+`hctry`, `chart`, `refresh`, `tz`, `pdel`, `sym`, `syms`, `relay`, `geo`.
 
 An empty `city` disables the weather fetch (device shows *no city* instead of
 looping on errors). `lang` accepts `en|ru|es|zh` and re-renders the web UI.
+
+## LAN relay for crypto (recommended)
+
+The ESP8266 cannot hold a BearSSL session reliably (a handshake needs ~13.5k
+of a ~14-16k heap), and every crypto API now forces HTTPS. `tools/cgrelay.py`
+runs on an always-on machine on the same LAN, talks HTTPS to CoinGecko and
+serves the same JSON to the clock over plain HTTP:
+
+```bash
+python tools/cgrelay.py                    # listens on 0.0.0.0:8099
+curl "http://DEVICE_IP/api/set?key=relay&value=192.168.0.104:8099"
+```
+
+With a relay set, prices, the 3-coin ticker and the candle chart all arrive
+over HTTP — the device performs no TLS at all. An empty `relay` restores the
+direct HTTPS path. The relay caches for 20s and serves stale data when
+CoinGecko hiccups, so the clock never blanks.
+
+Weather already uses plain HTTP (Open-Meteo), no relay needed.
 
 ## Refresh
 

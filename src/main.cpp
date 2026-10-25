@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.29"
+#define FW_VERSION "v1.0.34"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -90,6 +90,7 @@ struct Cfg {
   String cgKey;            // optional CoinGecko Demo API key ("" = free public)
   uint8_t tunit = 0;       // temperature unit: 0 = Celsius, 1 = Fahrenheit (display)
   // cached geocode for gCity: saves the geocoding TLS request on every boot
+  String  relay;           // "host:port" of the LAN CoinGecko->HTTP relay ("" = direct HTTPS)
   String  gCity, gName, gCc;
   float   gLat = 0, gLon = 0;
 } cfg;
@@ -725,7 +726,7 @@ static bool httpGetStart(BearSSL::WiFiClientSecure& cli, HTTPClient& http,
     // ctx takes ~6.6k - these numbers are POST-ctx.  The handshake needs
     // ~7.1k contiguous more, so only start from a genuine heap peak
     // (overnight soak: attempts at mfb 7.6k failed ~every time, 9.6k worked).
-    if(f0 < 9000UL || m0 < 8800UL){
+    if(f0 < 9000UL || m0 < 7300UL){
       httpSkip = true;
       mkErr = "heap low";
       coolUntil = millis() + 2500UL;
@@ -949,13 +950,19 @@ private:
   size_t      _bytes   = 0;
 };
 
-// NOTE: the client is created per fetch on purpose.  A persistent one saves
-// the ~6.4k ctor churn, but a failed connect leaves the BearSSL engine
-// allocated and a long-lived object never frees it (observed: heap stuck
-// at 7.3k, handshakes kept failing).  The destructor releases it.
+// ONE client for all HTTPS fetches, created on the first call (right after
+// boot, pristine heap).  A per-fetch client carves a 6.4k hole out of the
+// biggest block every time: the boot fetch fits, later ones stall at ~2k
+// headroom.  Every failure path still calls cli.stop() to release the engine.
+static BearSSL::WiFiClientSecure* tlsCli = nullptr;
+static BearSSL::WiFiClientSecure& tlsClient(){
+  if(!tlsCli) tlsCli = new BearSSL::WiFiClientSecure();
+  return *tlsCli;
+}
+
 static bool httpJsonOnce(const String& url, JsonDocument& doc, const char* filter = nullptr){
   uint32_t heapBefore = ESP.getFreeHeap();
-  BearSSL::WiFiClientSecure cli;
+  BearSSL::WiFiClientSecure& cli = tlsClient();
   HTTPClient http;
   int code = 0;
   if(!httpGetStart(cli, http, url, code)) return false;
@@ -1146,7 +1153,12 @@ static bool httpJson(const String& url, JsonDocument& doc, const char* filter = 
   return false;
 }
 
-static String cgBase(){ return String("https://api.coingecko.com/api/v3"); }
+// the LAN relay serves CoinGecko JSON over plain HTTP: the ESP8266 TLS stack
+// needs ~13.5k of a ~14-16k heap and cannot keep up with 1-min polls
+static String cgBase(){
+  if(cfg.relay.length()) return String("http://") + cfg.relay + "/api/v3";
+  return String("https://api.coingecko.com/api/v3");
+}
 static int daysOf(){
   return 1;                       // range is hardcoded to 1d (selector removed)
 }
@@ -1178,23 +1190,44 @@ static bool fetchCandles(){
   // with MFLN needs ~14.7k and works; the body may still truncate on the slow
   // origin - the truncation reject + 45s backoff + cache failover handle it.
   String url = cgBase() + "/coins/" + cfg.sym + "/ohlc?vs_currency=usd&days=" + days;
-  BearSSL::WiFiClientSecure cli;
+  // LAN relay: plain HTTP, no TLS client at all (the ctor alone is ~6.4k).
+  // The body is small (~2.3k), so buffer it and run the same row parser on it.
+  bool plainRelay = url.startsWith("http://");
+  static String pbody;
+  WiFiClient pcli;
   HTTPClient http;
   int code = 0;
   uint32_t tC = millis();
-  if(!httpGetStart(cli, http, url, code)){
+  if(plainRelay){
+    http.setTimeout(8000);
+    http.setReuse(false);
+    if(!http.begin(pcli, url)){ mkErr = "begin failed"; return false; }
+    http.addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+    http.addHeader("Accept", "application/json");
+    http.addHeader("Accept-Encoding", "identity");
+    code = http.GET();
+    pbody = (code == 200) ? http.getString() : String();
+    http.end();
+    Serial.printf("[candle] relay %d in %lums (%u B)\n", code,
+                  (unsigned long)(millis() - tC), (unsigned)pbody.length());
+    if(code != 200){
+      mkErr = (code < 0) ? "connection failed" : String("http ") + String(code);
+      return false;
+    }
+  } else if(!httpGetStart(tlsClient(), http, url, code)){
     Serial.printf("[candle] GET fail %lums %s\n", (unsigned long)(millis() - tC), mkErr.c_str());
     return false;
   }
-  Serial.printf("[candle] GET %d in %lums (http %ums)\n", code,
-                (unsigned long)(millis() - tC), lastHttpMs);
+  if(!plainRelay)
+    Serial.printf("[candle] GET %d in %lums (http %ums)\n", code,
+                  (unsigned long)(millis() - tC), lastHttpMs);
   if(code != 200){
     mkErr = HTTPClient::errorToString(code) + " (" + String(code) + ")";
     http.end();
     return false;
   }
-  int len = http.getSize();
-  cdChunk = (len <= 0);
+  int len = plainRelay ? (int)pbody.length() : http.getSize();
+  cdChunk = plainRelay ? false : (len <= 0);
   ChunkedStream cs;
   if(len <= 0){
     // chunked transfer: decode the framing on the fly and parse straight from
@@ -1221,7 +1254,8 @@ static bool fetchCandles(){
   if(days >= 14) stride = ((days * 6) + MAXCD - 1) / MAXCD;   // 4h candles
   if(stride < 1) stride = 1;
 
-  Stream& s = cdChunk ? (Stream&)cs : http.getStream();
+  BufStream pbs(pbody.c_str(), plainRelay ? pbody.length() : 0);
+  Stream& s = plainRelay ? (Stream&)pbs : (cdChunk ? (Stream&)cs : http.getStream());
   // A 6s per-byte timeout froze the web UI for 7-13s whenever the body (or the
   // keep-alive tail) trickled in: every silent gap cost a full timeout.  2.5s
   // caps the stall; a genuinely dead stream then fails over to the cache.
@@ -1591,6 +1625,11 @@ static bool omGeocode(){
   if(cfg.gCity == cfg.city && cfg.gLat != 0.0f){
     omGeoLat = cfg.gLat; omGeoLon = cfg.gLon;
     omGeoCc = cfg.gCc;   omGeoName = cfg.gName;
+    if(!omGeoName.length()){          // coords seeded without a name
+      omGeoName = cfg.city;
+      int ci2 = omGeoName.lastIndexOf(',');
+      if(ci2 > 0 && omGeoName.length() - ci2 == 3) omGeoName = omGeoName.substring(0, ci2);
+    }
     omGeoQ = cfg.city;   omGeoOk = true;
     Serial.printf("[omgeo] cached coords for %s\n", cfg.city.c_str());
     return true;
@@ -1745,7 +1784,7 @@ static bool fetchForecastOwm(){
   }
   String url = owmBase() + "/forecast?q=" + urlencode(cfg.city) +
                "&units=metric&appid=" + cfg.owmKey + langQ();
-  BearSSL::WiFiClientSecure cli;
+  BearSSL::WiFiClientSecure& cli = tlsClient();
   HTTPClient http;
   int code = 0;
   if(!httpGetStart(cli, http, url, code)) return false;
@@ -2613,17 +2652,19 @@ static void fetchData(bool force){
   static uint32_t failSince = 0; // continuous-failure window (dns/connection cycles)
   if(fetchHold()) return;         // link just up: DNS/heap settle window
   if(now < coolUntil) return;
-  uint32_t every = (uint32_t)cfg.refresh * 1000UL;
+  // TLS needs ~8k contiguous on this chip: a 60s poll kept the heap shredded
+  // and the breakers restarted the board every ~6 min.  120s floor.
+  uint32_t every = ((uint32_t)cfg.refresh > 120UL ? (uint32_t)cfg.refresh : 120UL) * 1000UL;
   if(!force && mkOk && now - mkAt < every) return;
   if(!force && !mkOk && now - lastFetchTry < 20000UL) return;
   // OOM guard BEFORE consuming any backoff state: the CoinGecko TLS stack
   // fits in ~12k contiguous (proven live), below that BearSSL sometimes dies
   // with a hard Exception(29) instead of a clean ssl=-1000 - that path retries
   // in 5s with a short message (httpGetStart).
-  if(ESP.getMaxFreeBlockSize() < 8300UL){
+  if(ESP.getMaxFreeBlockSize() < 6000UL){
     if(!dSkip) dSkip = now;
-    else if(now - dSkip > 150000UL){
-      Serial.println("[data] heap wedge 2.5min -> restart");
+    else if(now - dSkip > 180000UL){
+      Serial.println("[data] heap wedge 3min -> restart");
       delay(50); Serial.flush(); ESP.restart();
     }
     Serial.println("[data] skip: fragmented heap"); return;
@@ -2652,9 +2693,8 @@ static void fetchData(bool force){
     }
     if(!httpSkip) mkErrReal = mkErr;
     mark(RM_PRICE | RM_FOOT);
-    if(!httpSkip && (mkErr.startsWith("no memory") ||
-       mkErr.startsWith("connection failed") ||
-       mkErr == "heap low")) lastFetchTry = millis() - 15000UL;  // retry in 5s
+    // no 5s fast-retry: it re-entered the TLS gate every few seconds; the 20s
+    // floor above plus tlsBackoff() pace real attempts
     if(!httpSkip) Serial.printf("[data] price FAIL %s\n", mkErr.c_str());
   }
 }
@@ -2678,15 +2718,18 @@ static void fetchCandlesData(){
   // up=8s the free heap is one big block - engine floors at 3.5k+ and the
   // same fetch fits (observed: GET 200 in 182ms).
   bool early = !candlesBootTried && now >= 8000UL;
-  if(!early && !candlesForce && mkOk && cdN > 0 && now - mkAt < (uint32_t)cfg.refresh * 1000UL) return;
+  // candles change slowly at the 1d range: a 5-min floor keeps the chart
+  // fresh while leaving the TLS stack long quiet windows
+  if(!early && !candlesForce && mkOk && cdN > 0 && now - mkAt <
+     ((uint32_t)cfg.refresh > 300UL ? (uint32_t)cfg.refresh : 300UL) * 1000UL) return;
   static uint32_t lastTry = 0;
   if(!early && !candlesForce && lastTry && now - lastTry < 20000UL) return;   // failed fetch backoff
   // same guard as fetchData, placed BEFORE the flags are consumed so a
   // skipped pass keeps candlesForce and retries in the next loop iteration
-  if(ESP.getMaxFreeBlockSize() < 8300UL){
+  if(ESP.getMaxFreeBlockSize() < 6000UL){
     if(!cSkip) cSkip = now;
-    else if(now - cSkip > 150000UL){
-      Serial.println("[candle] heap wedge 2.5min -> restart");
+    else if(now - cSkip > 180000UL){
+      Serial.println("[candle] heap wedge 3min -> restart");
       delay(50); Serial.flush(); ESP.restart();
     }
     Serial.println("[candle] skip: fragmented heap"); return;
@@ -2709,8 +2752,6 @@ static void fetchCandlesData(){
     if(mkErr.startsWith("ohlc truncated")){
       truncUntil = now + 45000UL;      // stop hammering a stalling stream
       lastTry = now;                   // truncUntil gates the next attempt
-    } else if(!httpSkip && (mkErr.startsWith("no memory") || mkErr.startsWith("connection failed"))){
-      lastTry = millis() - 15000UL;    // retry in 5s
     }
     if(!httpSkip) mkErrReal = mkErr;
     if(cdN == 0 && chartCacheLookup(cfg.sym, cfg.range)) mark(RM_CHART);   // last good chart back
@@ -2982,6 +3023,7 @@ static void saveCfg(){
   d["owmkey"] = cfg.owmKey;
   d["cgkey"] = cfg.cgKey;
   d["tunit"] = cfg.tunit;
+  d["relay"] = cfg.relay;
   d["gcity"] = cfg.gCity;
   d["gname"] = cfg.gName;
   d["gcc"]   = cfg.gCc;
@@ -3070,6 +3112,7 @@ static void loadCfg(){
   if(d["owmkey"].is<const char*>()) cfg.owmKey = d["owmkey"].as<String>();
   if(d["cgkey"].is<const char*>())  cfg.cgKey  = d["cgkey"].as<String>();
   if(d["tunit"].is<int>())          cfg.tunit = (d["tunit"].as<int>() == 1) ? 1 : 0;
+  if(d["relay"].is<const char*>())  cfg.relay = d["relay"].as<String>();
   if(d["gcity"].is<const char*>())  cfg.gCity = d["gcity"].as<String>();
   if(d["gname"].is<const char*>())  cfg.gName = d["gname"].as<String>();
   if(d["gcc"].is<const char*>())    cfg.gCc   = d["gcc"].as<String>();
@@ -6238,6 +6281,7 @@ static void handleStatus(){
   out += ",\"cgk\":";   out += cfg.cgKey.length()  ? "1" : "0";
   out += ",\"tunit\":"; out += String(cfg.tunit);
   out += ",\"fw\":\"" FW_VERSION " (" __DATE__ ")\"";
+  out += ",\"relay\":\""; out += cfg.relay; out += "\"";
   out += ",\"pf\":";
   if(phKind == 1){
     out += "{\"k\":\"jpg\",\"w\":"; out += String(phW);
@@ -6373,6 +6417,13 @@ static void handleSet(){
     }
     cfg.tunit = (v == "1") ? 1 : 0;
     mark(RM_ALL);                    // repaint every theme in the new unit
+  } else if(k == "relay"){
+    // "host:port" of the LAN relay; empty value = direct CoinGecko HTTPS
+    cfg.relay = v;
+    cfg.relay.trim();
+    saveCfg();
+    mkAt = 0; lastFetchTry = 0; coolUntil = millis() + 1000UL;
+    mark(RM_ALL);
   } else if(k == "geo"){
     // "lat,lon": seed the geocode cache so the weather path never needs
     // the geocoding service for this city
@@ -6384,7 +6435,11 @@ static void handleSet(){
       return;
     }
     cfg.gLat = la; cfg.gLon = lo; cfg.gCity = cfg.city;
-    omGeoLat = la; omGeoLon = lo; omGeoQ = cfg.city; omGeoOk = true;
+    cfg.gName = cfg.city;             // display name fallback (strip ",CC")
+    int gci = cfg.gName.lastIndexOf(',');
+    if(gci > 0 && cfg.gName.length() - gci == 3) cfg.gName = cfg.gName.substring(0, gci);
+    omGeoLat = la; omGeoLon = lo; omGeoName = cfg.gName;
+    omGeoQ = cfg.city; omGeoOk = true;
     saveCfg();
   } else if(k == "lang"){
     if(v != "ru" && v != "en" && v != "es" && v != "zh"){
@@ -7419,8 +7474,8 @@ void loop(){
   // ...and never while the provisioning portal owns the device: with no saved
   // network nothing can un-stick the fetchers, and a reboot mid-setup would
   // drop the user's phone session for no reason.
-  if((ESP.getMaxFreeBlockSize() < 12000UL || ESP.getFreeHeap() < 16700UL) && dueNow
-     && cfg.wifiSsid.length()){
+  // a plain 10-11k floor is normal here; only a real wedge may restart
+  if(ESP.getMaxFreeBlockSize() < 7000UL && dueNow && cfg.wifiSsid.length()){
     // fetchers still ATTEMPTING (a TLS try in the last 2 min) = they are alive
     // and failing from outside (handshake wave / rate limit) - a reboot cannot
     // help that and used to produce a restart cycle every ~5 min during a

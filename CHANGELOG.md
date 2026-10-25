@@ -3,6 +3,17 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.34 - 2026-10-25
+
+**Root-cause pass - the device no longer uses TLS at all.**
+
+- **LAN CoinGecko relay** (	ools/cgrelay.py): the ESP8266 cannot hold a BearSSL session reliably (handshake needs ~13.5k of a ~14-16k heap) and every crypto API forces HTTPS. A tiny HTTP relay on the always-on PC serves the same CoinGecko JSON over plain HTTP; set it with /api/set?key=relay&value=host:port. Prices, the 3-coin ticker and the candle chart now arrive over HTTP (relay caches 20s, serves stale data on CoinGecko hiccups).
+- **Weather/forecast/geocoding over plain HTTP** (Open-Meteo) - that host has no MFLN and its handshake never fit next to the 2048-byte TLS buffer.
+- **Price + ticker share one request** (were two TLS sessions per minute, the second always starving).
+- **Fewer, gentler restarts**: TLS cadence floors (price 120s, candles 300s), breaker thresholds relaxed to genuine wedges (mfb < 6000), 5s retry storm removed.
+- **Weather city name** derived when only coordinates were seeded (key=geo).
+- Fixed: warm repaint ran before TJpgDec.setCallback() -> WDT boot loop (v1.0.27).
+
 ## v1.0.29 - 2026-10-24
 
 - **Open-Meteo over plain HTTP** - weather, 6-day forecast and geocoding now use http:// (no TLS). That host offers no MFLN and its handshake never fit the ESP8266 heap next to a 2048-byte TLS buffer, so the weather stayed on 'loading' for hours. The plain path buffers the body with getString() (chunked framing is only decoded there). Live: /v1/forecast 200 in ~50ms, current 797B + forecast 616B.
@@ -104,10 +115,10 @@ Stability pass - fewer restarts, and (where unavoidable) invisible ones:
 ## v1.0.1 - 2026-10-12
 
 - **Temperature units** - new *Temperature units* setting on the Weather tab:
-  render temperatures in Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°C or Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°F. Applies to the Classic, Weather and
+  render temperatures in Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р вЂ Р Р†Р вЂљРЎвЂєР РЋРЎвЂєР В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°C or Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р вЂ Р Р†Р вЂљРЎвЂєР РЋРЎвЂєР В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°F. Applies to the Classic, Weather and
   Forecast themes (converted at draw time; cached weather stays metric).
   Stored as `tunit` in config, exposed in `/api/status` and `/api/set`,
-  localized in EN/RU/ES/ZH. Existing configs keep Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°C (no migration).
+  localized in EN/RU/ES/ZH. Existing configs keep Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р вЂ Р Р†Р вЂљРЎвЂєР РЋРЎвЂєР В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В°C (no migration).
 - **Installed firmware version** - the Firmware tab shows the running
   firmware version and build date; also exposed as `fw` in `/api/status`.
 - Repository: added this CHANGELOG; `docs/HTTP-API.md` documents `tunit`
