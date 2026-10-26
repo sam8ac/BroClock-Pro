@@ -3,6 +3,15 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.1.0 - 2026-10-26
+
+Release build. Feature: temperature units (°C/°F) and the localized city name.
+Reliability: the firmware no longer performs TLS at all - weather/forecast/geocode
+over plain HTTP (Open-Meteo), prices/ticker/candles over the optional LAN relay
+(`tools/cgrelay.py`); back-off, cache throttling and gentler breakers replace the
+restart loops; boot animation with the backlight off until the first frame.
+See the GitHub release notes for the user-facing summary.
+
 ## v1.0.40 - 2026-10-26
 
 - **The firmware owns the backlight pin** - the build no longer defines `TFT_BL`,

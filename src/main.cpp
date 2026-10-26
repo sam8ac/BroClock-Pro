@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.40"
+#define FW_VERSION "v1.1.0"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
