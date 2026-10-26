@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.1.0"
+#define FW_VERSION "v1.1.1"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -410,6 +410,7 @@ static float mkPrice = 0, mkChg = 0;
 static bool mkOk = false;
 static uint32_t mkAt = 0;          // millis() of last good fetch
 static uint32_t lastFetchTry = 0;
+static uint32_t cdAt = 0;          // millis() of the last good candle fetch (own cadence)
 static uint32_t lastTlsTry = 0;      // last httpGetStart entry (breaker: fetchers alive?)
 static uint32_t lastTlsEnd = 0;      // last REAL attempt finished (min spacing)
 static uint32_t coolUntil = 0;        // backoff after HTTP 429 / OOM
@@ -2762,9 +2763,10 @@ static void fetchCandlesData(){
   // up=8s the free heap is one big block - engine floors at 3.5k+ and the
   // same fetch fits (observed: GET 200 in 182ms).
   bool early = !candlesBootTried && now >= 8000UL;
-  // candles change slowly at the 1d range: a 5-min floor keeps the chart
-  // fresh while leaving the TLS stack long quiet windows
-  if(!early && !candlesForce && mkOk && cdN > 0 && now - mkAt <
+  // Candles have their OWN 5-min cadence: comparing against mkAt (the price
+  // stamp, refreshed every ~2 min) kept this gate shut forever and the chart
+  // froze for hours while prices streamed.
+  if(!early && !candlesForce && cdN > 0 && cdAt && now - cdAt <
      ((uint32_t)cfg.refresh > 300UL ? (uint32_t)cfg.refresh : 300UL) * 1000UL) return;
   static uint32_t lastTry = 0;
   if(!early && !candlesForce && lastTry && now - lastTry < 20000UL) return;   // failed fetch backoff
@@ -2788,6 +2790,7 @@ static void fetchCandlesData(){
   if(ok) buildLineFromCandles();
   if(ok){
     mkErrReal = "";
+    cdAt = now;
     chartCacheStore();
     coolUntil = millis() + coolGap();   // space the next TLS (same as fetchData)
     mark(RM_CHART);

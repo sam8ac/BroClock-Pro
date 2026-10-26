@@ -3,6 +3,13 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.1.1 - 2026-10-26
+
+- **Candle chart froze for hours** - the 5-minute refresh gate compared against
+  `mkAt` (the PRICE timestamp, refreshed every ~2 min), so it never opened: the
+  chart stayed at whatever was fetched at boot while prices kept streaming.
+  Candles now have their own stamp (`cdAt`) and refresh every 5 minutes.
+
 ## v1.1.0 - 2026-10-26
 
 Release build. Feature: temperature units (°C/°F) and the localized city name.
