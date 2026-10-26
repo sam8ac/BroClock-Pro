@@ -3,6 +3,12 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.37 - 2026-10-26
+
+- **Boot animation restored on every restart** - the silent warm restart still
+  flickered (panel state/init), so the winXP boot screen is back; the early warm
+  repaint (which would flash underneath) is gone.
+
 ## v1.0.36 - 2026-10-26
 
 - **City name follows the UI language** - the geocode cache now remembers which language its name was fetched in (gLang); on a language switch the plain-HTTP geocoder is asked for the localized spelling while the cached coordinates keep feeding the forecast. A name lookup failure never blocks weather data. Verified: ru -> Vitebsk/Витебск -> Vitebsk on en -> back.

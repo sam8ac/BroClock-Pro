@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.36"
+#define FW_VERSION "v1.0.37"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -3321,7 +3321,7 @@ static uint8_t bootFrame = 0;
 static uint32_t bootNext = 0;
 static bool warmBoot = false;          // warm reset: skip all boot frames
 static void bootTick(uint32_t now){
-  if(warmBoot || now < bootNext) return;
+  if(now < bootNext) return;
   bootNext = now + BOOT_MS;
   bootShow(bootFrame);
   if(++bootFrame >= BOOT_N) bootFrame = 0;
@@ -7224,12 +7224,10 @@ void setup(){
   tft.init();
   sdpro_skip_tft_reset = false;
   tft.setRotation(0);
-  if(!warmBoot){
-    bootShow(0);                        // fullscreen winXP boot animation
-    bootNext = millis();
-  } else if(!keepFrame){
-    tft.fillScreen(TFT_BLACK);          // GRAM holds boot noise after a crash
-  }
+  // The boot animation runs on every restart: the "silent" warm path still
+  // flickered (panel state/init), and a proper boot screen reads better.
+  bootShow(0);                          // fullscreen winXP boot animation
+  bootNext = millis();
 
   if(!LittleFS.begin()){
     Serial.println("[fs] mount failed, formatting");
@@ -7250,11 +7248,7 @@ void setup(){
   // decoder spins on a null callback and the WDT resets the board (loop).
   TJpgDec.setCallback(wxJpgOut);
   TJpgDec.setJpgScale(1);
-  if(warmBoot){
-    rm = RM_ALL;
-    dirty = true;
-    render();                         // instant repaint from cache, no boot art
-  }
+  // (the boot animation owns the panel until the first normal paint)
 
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
