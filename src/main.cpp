@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.37"
+#define FW_VERSION "v1.0.38"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -7202,11 +7202,13 @@ void setup(){
   Serial.println("\n[boot] BroClock Pro crypto-ticker");
 
   pinMode(TFT_BL, OUTPUT);
-#ifdef TFT_BACKLIGHT_ON
-  digitalWrite(TFT_BL, TFT_BACKLIGHT_ON);   // LOW = on (active-low)
-#else
-  digitalWrite(TFT_BL, HIGH);
-#endif
+  // Keep the glass dark through the panel init and the first boot frame: at
+  // night the uninitialised panel flashes at full brightness.  applyBrightness()
+  // (after the config is loaded) turns the light on with the saved level, at
+  // which point frame 0 of the boot animation is already on the panel.
+  analogWriteRange(1023);
+  analogWriteFreq(1000);
+  analogWrite(TFT_BL, 1023);                // active-low P-MOSFET: 1023 = off
   // Warm reset (crash/watchdog/OTA): no winXP animation, the clock is
   // repainted from cache as soon as the filesystem is mounted.
   // On a CLEAN restart the panel reset is skipped as well (patched init):

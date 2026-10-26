@@ -3,6 +3,13 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.38 - 2026-10-26
+
+- **No backlight flash on restart** - the panel is initialised and the first boot
+  frame is drawn with the backlight off (GPIO5 PWM = off); `applyBrightness()`
+  lights it up with the saved level afterwards, so at night a restart no longer
+  starts with a full-brightness flash.
+
 ## v1.0.37 - 2026-10-26
 
 - **Boot animation restored on every restart** - the silent warm restart still
