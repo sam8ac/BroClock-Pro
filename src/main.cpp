@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.35"
+#define FW_VERSION "v1.0.36"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -92,6 +92,7 @@ struct Cfg {
   // cached geocode for gCity: saves the geocoding TLS request on every boot
   String  relay;           // "host:port" of the LAN CoinGecko->HTTP relay ("" = direct HTTPS)
   String  gCity, gName, gCc;
+  uint8_t gLang = 255;     // langIdx the cached city name is localized for
   float   gLat = 0, gLon = 0;
 } cfg;
 
@@ -1620,18 +1621,46 @@ static bool omGeoPrefix(){
   return hit;
 }
 
+// Localized display name for the cached city.  Coordinates stay untouched, so
+// the forecast is never blocked by this lookup; it runs once per language.
+static bool geoNameRefresh(){
+  String q = cfg.city;
+  int ci = q.lastIndexOf(',');
+  if(ci > 0 && q.length() - ci == 3 && isAlpha(q[ci + 1]) && isAlpha(q[ci + 2]))
+    q = q.substring(0, ci);
+  JsonDocument d;
+  String url = String("http://geocoding-api.open-meteo.com/v1/search?name=") +
+               urlencode(q) + "&count=1&language=" + geoLang() + "&format=json";
+  static const char* F = "{\"results\":[{\"name\":true,\"country_code\":true}]}";
+  if(!httpJson(url, d, F)) return false;
+  JsonObject r = d["results"][0].as<JsonObject>();
+  if(r.isNull()) return false;
+  omGeoName = String((const char*)(r["name"] | cfg.city.c_str()));
+  omGeoCc   = String((const char*)(r["country_code"] | cfg.gCc.c_str()));
+  cfg.gName = omGeoName;
+  cfg.gCc   = omGeoCc;
+  cfg.gLang = (uint8_t)langIdx();
+  saveCfg();
+  Serial.printf("[omgeo] localized name %s (lang %d)\n", omGeoName.c_str(), (int)langIdx());
+  return true;
+}
+
 static bool omGeocode(){
   if(omGeoOk && omGeoQ == cfg.city) return true;
   if(cfg.gCity == cfg.city && cfg.gLat != 0.0f){
     omGeoLat = cfg.gLat; omGeoLon = cfg.gLon;
     omGeoCc = cfg.gCc;   omGeoName = cfg.gName;
-    if(!omGeoName.length()){          // coords seeded without a name
+    omGeoQ = cfg.city;   omGeoOk = true;
+    if(omGeoName.length() && cfg.gLang == (uint8_t)langIdx()){
+      Serial.printf("[omgeo] cached coords for %s\n", cfg.city.c_str());
+      return true;
+    }
+    // name missing or in another language: localize it, never fail the weather
+    if(!geoNameRefresh() && !omGeoName.length()){
       omGeoName = cfg.city;
       int ci2 = omGeoName.lastIndexOf(',');
       if(ci2 > 0 && omGeoName.length() - ci2 == 3) omGeoName = omGeoName.substring(0, ci2);
     }
-    omGeoQ = cfg.city;   omGeoOk = true;
-    Serial.printf("[omgeo] cached coords for %s\n", cfg.city.c_str());
     return true;
   }
   // 1) OWM geocoder first (only when the user provided a key): it accepts
@@ -1708,9 +1737,9 @@ static bool omGeocode(){
 // Cyrillic - and answers with a localisation, so the display gets "Витебск")
 static bool fetchWeatherOmeto(){
   if(!omGeocode()){ if(!httpSkip){ wxErr = "geocode"; wxOk = false; } return false; }
-  if(cfg.gCity != cfg.city){
+  if(cfg.gCity != cfg.city || cfg.gLang != (uint8_t)langIdx()){
     cfg.gCity = cfg.city; cfg.gLat = omGeoLat; cfg.gLon = omGeoLon;
-    cfg.gName = omGeoName; cfg.gCc = omGeoCc;
+    cfg.gName = omGeoName; cfg.gCc = omGeoCc; cfg.gLang = (uint8_t)langIdx();
     Serial.printf("[omgeo] saved coords %s %.4f,%.4f\n", cfg.city.c_str(),
                   (double)cfg.gLat, (double)cfg.gLon);
     saveCfg();                       // once per city: weather never geocodes again
@@ -1899,9 +1928,9 @@ static int wdayYMD(int y, int m, int d){
 
 static bool fetchForecastOmeto(){
   if(!omGeocode()){ mkErr = "fc geocode"; return false; }
-  if(cfg.gCity != cfg.city){
+  if(cfg.gCity != cfg.city || cfg.gLang != (uint8_t)langIdx()){
     cfg.gCity = cfg.city; cfg.gLat = omGeoLat; cfg.gLon = omGeoLon;
-    cfg.gName = omGeoName; cfg.gCc = omGeoCc;
+    cfg.gName = omGeoName; cfg.gCc = omGeoCc; cfg.gLang = (uint8_t)langIdx();
     saveCfg();
   }
   JsonDocument d;
@@ -3025,6 +3054,7 @@ static void saveCfg(){
   d["cgkey"] = cfg.cgKey;
   d["tunit"] = cfg.tunit;
   d["relay"] = cfg.relay;
+  d["glang"] = cfg.gLang;
   d["gcity"] = cfg.gCity;
   d["gname"] = cfg.gName;
   d["gcc"]   = cfg.gCc;
@@ -3114,6 +3144,7 @@ static void loadCfg(){
   if(d["cgkey"].is<const char*>())  cfg.cgKey  = d["cgkey"].as<String>();
   if(d["tunit"].is<int>())          cfg.tunit = (d["tunit"].as<int>() == 1) ? 1 : 0;
   if(d["relay"].is<const char*>())  cfg.relay = d["relay"].as<String>();
+  if(d["glang"].is<int>())          cfg.gLang = (uint8_t)(d["glang"].as<int>() & 255);
   if(d["gcity"].is<const char*>())  cfg.gCity = d["gcity"].as<String>();
   if(d["gname"].is<const char*>())  cfg.gName = d["gname"].as<String>();
   if(d["gcc"].is<const char*>())    cfg.gCc   = d["gcc"].as<String>();
@@ -6436,6 +6467,7 @@ static void handleSet(){
       return;
     }
     cfg.gLat = la; cfg.gLon = lo; cfg.gCity = cfg.city;
+    cfg.gLang = 255;                  // name not localized yet -> refresh on next fetch
     cfg.gName = cfg.city;             // display name fallback (strip ",CC")
     int gci = cfg.gName.lastIndexOf(',');
     if(gci > 0 && cfg.gName.length() - gci == 3) cfg.gName = cfg.gName.substring(0, gci);
