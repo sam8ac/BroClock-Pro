@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.34"
+#define FW_VERSION "v1.0.35"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -2531,14 +2531,15 @@ static void maybeFetchWx(){
   bool wantF = haveCity && (fcn > 0 ? (t - fcAt >= 1800000UL) : true) &&
               (!fcTry || t - fcTry >= 60000UL);
   if(wantW){
-    if(ESP.getMaxFreeBlockSize() < 8300UL) return;   // TLS below ~8.3k dies hard
+    // weather is plain HTTP now: no TLS engine, a 4k island is plenty
+    if(ESP.getMaxFreeBlockSize() < 4000UL) return;
     wxTry = t;
     if(fetchWeather()) mark(RM_HEAD | RM_PRICE | RM_CHART | RM_FOOT);
     else { mark(RM_PRICE | RM_CHART | RM_FOOT); oomFailCheck("wx");
            wxTry = millis() - (httpSkip ? 35000UL : 45000UL); }  // 25s if deferred, else 15s
     lastPhase = "wx"; lastPhaseMs = millis() - t;
   } else if(wantF && wxOk){   // forecast is a large payload: only when needed
-    if(ESP.getMaxFreeBlockSize() < 8300UL) return;
+    if(ESP.getMaxFreeBlockSize() < 4000UL) return;
     fcTry = t;
     if(fetchForecast()) mark(RM_HEAD | RM_PRICE | RM_CHART);   // HEAD: night/day temps
     else oomFailCheck("fc");
@@ -2661,9 +2662,9 @@ static void fetchData(bool force){
   // fits in ~12k contiguous (proven live), below that BearSSL sometimes dies
   // with a hard Exception(29) instead of a clean ssl=-1000 - that path retries
   // in 5s with a short message (httpGetStart).
-  if(ESP.getMaxFreeBlockSize() < 6000UL){
+  if(ESP.getMaxFreeBlockSize() < (cfg.relay.length() ? 3500UL : 6000UL)){
     if(!dSkip) dSkip = now;
-    else if(now - dSkip > 180000UL){
+    else if(now - dSkip > 180000UL && !cfg.relay.length()){
       Serial.println("[data] heap wedge 3min -> restart");
       delay(50); Serial.flush(); ESP.restart();
     }
@@ -2726,9 +2727,9 @@ static void fetchCandlesData(){
   if(!early && !candlesForce && lastTry && now - lastTry < 20000UL) return;   // failed fetch backoff
   // same guard as fetchData, placed BEFORE the flags are consumed so a
   // skipped pass keeps candlesForce and retries in the next loop iteration
-  if(ESP.getMaxFreeBlockSize() < 6000UL){
+  if(ESP.getMaxFreeBlockSize() < (cfg.relay.length() ? 3500UL : 6000UL)){
     if(!cSkip) cSkip = now;
-    else if(now - cSkip > 180000UL){
+    else if(now - cSkip > 180000UL && !cfg.relay.length()){
       Serial.println("[candle] heap wedge 3min -> restart");
       delay(50); Serial.flush(); ESP.restart();
     }
