@@ -3,6 +3,17 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.0.40 - 2026-10-26
+
+- **The firmware owns the backlight pin** - the build no longer defines `TFT_BL`,
+  because `TFT_eSPI::init()` switches it to the ON level at full brightness right
+  after the panel init (that was the night flash). The pin is `BL_PIN` (GPIO5) in
+  the sketch only.
+- **Light off before any restart** - every restart path (API, OTA, breakers) calls
+  `restartNow()`, which turns the backlight off first. The next boot initialises
+  the panel and draws the first animation frame in the dark and only then lights
+  up at the saved brightness.
+
 ## v1.0.38 - 2026-10-26
 
 - **No backlight flash on restart** - the panel is initialised and the first boot

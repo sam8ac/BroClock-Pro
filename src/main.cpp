@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.0.38"
+#define FW_VERSION "v1.0.40"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -33,6 +33,20 @@
 // skip the panel reset so a clean warm restart keeps the frame on glass
 bool sdpro_skip_tft_reset = false;
 
+// Backlight: GPIO5, P-MOSFET, active-low.  Deliberately NOT defined as TFT_BL:
+// TFT_eSPI::init() would switch the light on at full brightness right after the
+// panel init, which flashes the room at night.
+#define BL_PIN 5
+// Light off BEFORE resetting: the next boot then runs its panel init and first
+// animation frame in the dark and only lights up once the frame is on glass.
+static void restartNow(){
+  analogWriteRange(1023);
+  analogWriteFreq(1000);
+  analogWrite(BL_PIN, 1023);              // active-low: 1023 = off
+  delay(50);
+  Serial.flush();
+  ESP.restart();
+}
 static TFT_eSPI tft;
 static ESP8266WebServer server(80);
 
@@ -2533,7 +2547,7 @@ static void oomFailCheck(const char* what){
   if(mkErr.indexOf("NoMemory") >= 0 || mkErr.indexOf("no memory") >= 0){
     if(++oomFailN >= 4 && (millis() - bootMs) > 900000UL){
       Serial.printf("[heap] repeated OOM in %s -> restart\n", what);
-      delay(100); Serial.flush(); ESP.restart();
+      restartNow();
     }
   } else oomFailN = 0;
 }
@@ -2695,7 +2709,7 @@ static void fetchData(bool force){
     if(!dSkip) dSkip = now;
     else if(now - dSkip > 180000UL && !cfg.relay.length()){
       Serial.println("[data] heap wedge 3min -> restart");
-      delay(50); Serial.flush(); ESP.restart();
+      restartNow();
     }
     Serial.println("[data] skip: fragmented heap"); return;
   }
@@ -2719,7 +2733,7 @@ static void fetchData(bool force){
       // a stuck dns/connection cycle keeps every fetch (and the wedge
       // detectors below) from ever succeeding - reboot once data is 3min stale
       Serial.println("[data] failing 3min -> restart");
-      delay(50); Serial.flush(); ESP.restart();
+      restartNow();
     }
     if(!httpSkip) mkErrReal = mkErr;
     mark(RM_PRICE | RM_FOOT);
@@ -2760,7 +2774,7 @@ static void fetchCandlesData(){
     if(!cSkip) cSkip = now;
     else if(now - cSkip > 180000UL && !cfg.relay.length()){
       Serial.println("[candle] heap wedge 3min -> restart");
-      delay(50); Serial.flush(); ESP.restart();
+      restartNow();
     }
     Serial.println("[candle] skip: fragmented heap"); return;
   }
@@ -3168,7 +3182,7 @@ static void applyBrightness(){
   analogWriteFreq(1000);
   // backlight is active-low (P-MOSFET): duty 0 = fully on
   int duty = (100 - b) * 1023 / 100;
-  analogWrite(TFT_BL, duty);
+  analogWrite(BL_PIN, duty);
 }
 
 // ---------------------------------------------------------------- drawing
@@ -6654,8 +6668,7 @@ static void handleReboot(){
   server.send(200, "application/json", "{\"ok\":1}");
   delay(200);                     // let the reply leave the socket
   Serial.println("[boot] restart requested via /api/reboot");
-  Serial.flush();
-  ESP.restart();
+  restartNow();
 }
 
 // ---------------------------------------------------------------- wifi management
@@ -7103,7 +7116,7 @@ static void handleAnim(){
 static const char FW_MARKER[] =
   "SDPRO_FW|ESP8266|flash=4M|ld=4m1m-big|"
   "driver=" FW_STR(ST7789_DRIVER) "|"
-  "cs=" FW_STR(TFT_CS) "|dc=" FW_STR(TFT_DC) "|rst=" FW_STR(TFT_RST) "|bl=" FW_STR(TFT_BL)
+  "cs=" FW_STR(TFT_CS) "|dc=" FW_STR(TFT_DC) "|rst=" FW_STR(TFT_RST) "|bl=" FW_STR(BL_PIN)
   "|blon=" FW_STR(TFT_BACKLIGHT_ON) "|mosi=" FW_STR(TFT_MOSI) "|sclk=" FW_STR(TFT_SCLK) "|";
 #define FW_MLEN (sizeof(FW_MARKER) - 1)
 
@@ -7125,7 +7138,7 @@ static void fwHandleDone(){
   if(fwDone){
     server.send(200, "text/plain", "OK");
     delay(300);
-    ESP.restart();
+    restartNow();
     return;
   }
   if(fwState == FW_RUN)
@@ -7201,14 +7214,14 @@ void setup(){
   bootMs = millis();
   Serial.println("\n[boot] BroClock Pro crypto-ticker");
 
-  pinMode(TFT_BL, OUTPUT);
+  pinMode(BL_PIN, OUTPUT);
   // Keep the glass dark through the panel init and the first boot frame: at
   // night the uninitialised panel flashes at full brightness.  applyBrightness()
   // (after the config is loaded) turns the light on with the saved level, at
   // which point frame 0 of the boot animation is already on the panel.
   analogWriteRange(1023);
   analogWriteFreq(1000);
-  analogWrite(TFT_BL, 1023);                // active-low P-MOSFET: 1023 = off
+  analogWrite(BL_PIN, 1023);                // active-low P-MOSFET: 1023 = off
   // Warm reset (crash/watchdog/OTA): no winXP animation, the clock is
   // repainted from cache as soon as the filesystem is mounted.
   // On a CLEAN restart the panel reset is skipped as well (patched init):
@@ -7514,7 +7527,7 @@ void loop(){
     else if(!blkSince) blkSince = now;
     else if(now - blkSince > 120000UL && (now - bootMs) > 240000UL){
       Serial.println("[heap] fragmented too long with data due -> restart");
-      delay(100); Serial.flush(); ESP.restart();
+      restartNow();
     }
   } else blkSince = 0;
 
