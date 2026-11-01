@@ -3,6 +3,16 @@
 Notable changes per firmware version. The running version is shown on the
 web UI **Firmware** tab and in the `fw` field of `/api/status`.
 
+## v1.1.2 - 2026-11-01
+
+- **Classic theme showed the weather status in English for every language** -
+  the condition pill drew `wxMain`, the OWM `main` word ("Clouds", "Rain"),
+  and rendered it with the built-in font 2 which has no Cyrillic at all.
+  The pill now shows a short localized word per condition (Ясно / Облачно /
+  Пасмурно / Дождь / Снег / Гроза / Морось / Туман, plus es/zh) drawn through
+  FontRu; EN keeps the OWM word exactly as before. "Облачность" in the metric
+  line is abbreviated so it stays clear of the now wider localized pill.
+
 ## v1.1.1 - 2026-10-26
 
 - **Candle chart froze for hours** - the 5-minute refresh gate compared against

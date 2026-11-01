@@ -3,7 +3,7 @@
 // Data: CoinGecko (HTTPS). Config: LittleFS /config.json. OTA: /update
 
 // firmware version: shown on the web Firmware page and in /api/status "fw"
-#define FW_VERSION "v1.1.1"
+#define FW_VERSION "v1.1.2"
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -3369,7 +3369,7 @@ static void clsDrawMetric(int x, int y){
     else if(k == 1) s = String(LG("Мин ", "Min ", "Mín ", "最低 ")) + String((int)lroundf(tDisp(wxTmin))) + "°";
     else if(k == 2) s = String(LG("Д ", "P ", "P ", "气压 ")) + String((int)wxPress) + LG(" гПа", " hPa", " hPa", " hPa");
     else if(k == 3) s = String(LG("Ветер ", "Wind ", "Viento ", "风 ")) + String((int)wxWind) + LG(" км/ч", " km/h", " km/h", " km/h");
-    else            s = String(LG("Облачность ", "Cloud ", "Nubes ", "云量 ")) + String(wxCloudPct) + "%";
+    else            s = String(LG("Облачн. ", "Cloud ", "Nubes ", "云量 ")) + String(wxCloudPct) + "%";
     txt(x, y, s, C_WHITE, 16);
     return;
   }
@@ -3399,6 +3399,23 @@ static void drawBold(const String& s, int32_t x, int32_t y, uint8_t font,
   tft.drawString(s, x, y + 1, font);
 }
 
+// Short localized condition for the Classic pill (fits ~9 glyphs; the pill
+// used to show the English OWM "main" word for every language).  OWM codes:
+// 2xx storm, 3xx drizzle, 5xx rain, 6xx snow, 7xx mist, 8xx clear/clouds.
+// LG keeps every literal in flash.  Unknown codes fall back to wxMain.
+static String wxCondShort(){
+  int code = wxCode;
+  if(code == 800)                return LG("Ясно",    "Clear",     "Despejado", "晴");
+  if(code >= 801 && code <= 802) return LG("Облачно", "Clouds",    "Nubes",     "多云");
+  if(code >= 803 && code <= 804) return LG("Пасмурно","Overcast",  "Nublado",   "阴");
+  if(code >= 200 && code < 300)  return LG("Гроза",   "Storm",     "Tormenta",  "雷雨");
+  if(code >= 300 && code < 400)  return LG("Морось",  "Drizzle",   "Llovizna",  "毛毛雨");
+  if(code >= 500 && code < 600)  return LG("Дождь",   "Rain",      "Lluvia",    "雨");
+  if(code >= 600 && code < 700)  return LG("Снег",    "Snow",      "Nieve",     "雪");
+  if(code >= 700 && code < 800)  return LG("Туман",   "Fog",       "Niebla",    "雾");
+  return wxMain;
+}
+
 static void clHead(){
   bgFillRect(0, 0, 240, 56);
   int bw = wxCountry.length() ? tft.textWidth(wxCountry, 2) + 14 : 0;
@@ -3426,14 +3443,22 @@ static void clHead(){
   }
   if(wxShowOk()) drawWxIcon(216, 18, 17, wxCode);
   // condition pill (moved here from the clock row - the clock owns it now)
-  String cond = wxShowOk() ? wxMain : String("-");
-  if(cond.length() > 9) cond = cond.substring(0, 9);
-  int pw = tft.textWidth(cond, 2) + 14;
+  // wxMain is the OWM "main" word and is ALWAYS English: every language but
+  // EN gets a short localized word, drawn through FontRu (font 2 has no
+  // Cyrillic).  Widths: pill max 94px (Пасмурно) -> px>=138, metric labels
+  // max 118px from x=8 -> they stay clear of each other.
+  String cond = wxShowOk() ? (gfxFont() ? wxCondShort() : wxMain) : String("-");
+  if(!gfxFont() && cond.length() > 9) cond = cond.substring(0, 9);   // EN: as before
+  int pw = (gfxFont() ? ruWidth(cond, 16) : tft.textWidth(cond, 2)) + 14;
   int px = 232 - pw;
   tft.fillRoundRect(px, 36, pw, 20, 5, C_WHITE);
-  tft.setTextDatum(MC_DATUM);
-  tft.setTextColor(C_BG, C_WHITE);
-  tft.drawString(cond, px + pw / 2, 47, 2);
+  if(gfxFont()){
+    ruDraw(px + (pw - ruWidth(cond, 16)) / 2, 41, cond, C_BG, 16);
+  } else {
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(C_BG, C_WHITE);
+    tft.drawString(cond, px + pw / 2, 47, 2);
+  }
   clsDrawMetric(8, 32);
 }
 
